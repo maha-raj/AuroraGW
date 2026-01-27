@@ -64,3 +64,5 @@ If you don’t confirm, the rollback timer restores last-known-good configs.
 ## Docs
 - Product spec: `docs/AuroraGW-Master-Plan.md`
 - Implementation plan: `docs/PROJECT_PLAN.md`
+- Home usage how-to: `docs/HOWTO.md`
+- VMware lab guide: `docs/VMWARE_LAB.md`

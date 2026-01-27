@@ -115,6 +115,7 @@ def render_nft(cfg, ifs):
         proto=r["proto"]; wp=int(r["wan_port"]); lip=r["lan_ip"]; lp=int(r["lan_port"])
         dnat_lines.append(f"{proto} dport {wp} dnat to {lip}:{lp}")
     dnat_block = "\n    ".join(dnat_lines) if dnat_lines else "# (no port forwards configured)"
+    port_fwd_enabled = bool(dnat_lines)
 
     return f'''flush ruleset
 
@@ -155,6 +156,11 @@ table inet filter {{
 
     iifname "{lan_if}" oifname "{nat_oif}" accept
     iifname "{opt_if}" oifname "{nat_oif}" accept
+
+    # Allow inbound forwarded traffic only when a DNAT rule exists.
+    # Without DNAT, inbound to the router hits the input chain (policy drop).
+    {'iifname "' + nat_oif + '" oifname "' + lan_if + '" ct state new accept' if port_fwd_enabled else '# (no port forwards; WAN->LAN forwarding disabled)'}
+    {'iifname "' + nat_oif + '" oifname "' + opt_if + '" ct state new accept' if port_fwd_enabled else '# (no port forwards; WAN->OPT1 forwarding disabled)'}
 
     # Home layout default:
     # - LAN -> OPT1 allowed (PCs/controllers reach printers/IoT)

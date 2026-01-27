@@ -231,9 +231,9 @@ Devices split across **LAN ↔ OPT1**:
 - Printing baseline: TCP 631 (IPP/IPPS)
 - Cast baseline: TCP 8008–8009 (configurable preset + advanced overrides)
 
-### 9.2 SSDP discovery relay (Roadmap)
-- Add “Discovery Relay” module (SSDP UDP 1900) for DLNA/TV/FireTV discovery
-- OFF by default; enable only between selected segment pairs
+### 9.2 SSDP discovery relay (Install Now)
+- Enable SSDP relay (UDP 1900) for DLNA/TV/FireTV discovery **only** between selected segment pairs
+- OFF by default; enable only when needed
 
 ### 9.3 UPnP IGD + NAT-PMP + PCP port mapping (Install Now)
 - Install `miniupnpd` with nftables backend where available
@@ -330,7 +330,7 @@ A single script (or suite) that verifies:
 | mDNS relay scoped to LAN↔OPT1 | Yes | Yes |
 | AirPrint support across segments via mDNS (and print ports) | Yes | Yes |
 | Chromecast/Cast discovery across segments via mDNS | Yes | Yes |
-| SSDP relay module for DLNA/TV/FireTV discovery (UDP 1900) | No | Yes |
+| SSDP relay module for DLNA/TV/FireTV discovery (UDP 1900) | Yes | Yes |
 | Streaming “preset” ruleset (Cast + printing scoped LAN→OPT1) | Yes | Yes |
 | UPnP IGD + NAT-PMP + PCP (LAN default; OPT1 optional) | Yes | Yes |
 | Suricata IDS (alert-only) | Yes (Optional module; default OFF) | Yes |

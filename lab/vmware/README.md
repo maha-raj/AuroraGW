@@ -1,10 +1,3 @@
-# VMware ISP Simulator
+# VMware lab
 
-Run this on a second Ubuntu VM with 2 NICs:
-- NIC1 -> WAN-LAB (same as AuroraGW WAN NIC)
-- NIC2 -> NAT/Internet
-
-Then run:
-```bash
-sudo ./isp-sim-setup.sh
-```
+See `docs/VMWARE_LAB.md` for the full environment build-out (VM count, network layout, and validation scripts).

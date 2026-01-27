@@ -1,0 +1,324 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": [
+    "interfaces",
+    "segments",
+    "wan",
+    "services",
+    "firewall"
+  ],
+  "properties": {
+    "interfaces": {
+      "type": "object",
+      "required": [
+        "wan",
+        "lan",
+        "opt1"
+      ],
+      "properties": {
+        "wan": {
+          "type": "object",
+          "required": [
+            "mac"
+          ],
+          "properties": {
+            "mac": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            }
+          }
+        },
+        "lan": {
+          "type": "object",
+          "required": [
+            "mac"
+          ],
+          "properties": {
+            "mac": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            }
+          }
+        },
+        "opt1": {
+          "type": "object",
+          "required": [
+            "mac"
+          ],
+          "properties": {
+            "mac": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "segments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "ifref",
+          "address"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "ifref": {
+            "type": "string"
+          },
+          "address": {
+            "type": "string"
+          },
+          "vlan": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "integer"
+              },
+              "parent_ifref": {
+                "type": "string"
+              }
+            }
+          },
+          "dhcp": {
+            "type": "object",
+            "properties": {
+              "range_start": {
+                "type": "string"
+              },
+              "range_end": {
+                "type": "string"
+              },
+              "enabled": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
+      }
+    },
+    "wan": {
+      "type": "object",
+      "required": [
+        "mode"
+      ],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "dhcp",
+            "pppoe"
+          ]
+        },
+        "pppoe": {
+          "type": "object",
+          "properties": {
+            "username": {
+              "type": "string"
+            },
+            "password": {
+              "type": "string"
+            },
+            "mtu": {
+              "type": "integer"
+            }
+          }
+        }
+      }
+    },
+    "services": {
+      "type": "object",
+      "properties": {
+        "dns": {
+          "type": "object",
+          "properties": {
+            "provider": {
+              "type": "string",
+              "enum": [
+                "unbound",
+                "dnsmasq"
+              ]
+            },
+            "enabled": {
+              "type": "boolean"
+            }
+          }
+        },
+        "dhcp": {
+          "type": "object",
+          "properties": {
+            "provider": {
+              "type": "string",
+              "enum": [
+                "kea",
+                "dnsmasq"
+              ]
+            },
+            "enabled": {
+              "type": "boolean"
+            }
+          }
+        },
+        "upnp": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "segments_enabled": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "discovery_relay": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "segments": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "qos": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "segments": {
+              "type": "object"
+            },
+            "wan": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "egress_kbit": {
+                  "type": "integer"
+                },
+                "ingress_kbit": {
+                  "type": "integer"
+                },
+                "overhead_bytes": {
+                  "type": "integer"
+                },
+                "mpu_bytes": {
+                  "type": "integer"
+                }
+              }
+            },
+            "dscp_rules": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "proto",
+                  "dport",
+                  "dscp"
+                ],
+                "properties": {
+                  "proto": {
+                    "type": "string",
+                    "enum": [
+                      "tcp",
+                      "udp"
+                    ]
+                  },
+                  "dport": {
+                    "type": "integer"
+                  },
+                  "dscp": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "wireguard": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          }
+        },
+        "suricata": {
+          "type": "object",
+          "properties": {
+            "installed": {
+              "type": "boolean"
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "interfaces": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "firewall": {
+      "type": "object",
+      "properties": {
+        "port_forwards": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "proto",
+              "wan_port",
+              "lan_ip",
+              "lan_port"
+            ],
+            "properties": {
+              "proto": {
+                "type": "string",
+                "enum": [
+                  "tcp",
+                  "udp"
+                ]
+              },
+              "wan_port": {
+                "type": "integer"
+              },
+              "lan_ip": {
+                "type": "string"
+              },
+              "lan_port": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

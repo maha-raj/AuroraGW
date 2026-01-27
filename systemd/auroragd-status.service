@@ -1,0 +1,13 @@
+[Unit]
+Description=AuroraGW Status API (starter)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/opt/auroragw/auroragd/status_server.py
+Restart=on-failure
+User=root
+
+[Install]
+WantedBy=multi-user.target

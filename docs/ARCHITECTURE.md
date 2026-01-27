@@ -1,0 +1,1 @@
+# Starter architecture\nSee README.md.\n

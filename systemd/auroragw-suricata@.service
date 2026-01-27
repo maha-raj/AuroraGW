@@ -1,0 +1,10 @@
+[Unit]
+Description=AuroraGW Suricata IDS on %i
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=simple
+ExecStart=/usr/bin/suricata -c /etc/suricata/suricata.yaml -i %i
+Restart=on-failure
+[Install]
+WantedBy=multi-user.target

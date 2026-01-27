@@ -1,0 +1,7 @@
+[Unit]
+Description=AuroraGW rollback timer
+[Timer]
+OnActiveSec=120s
+AccuracySec=1s
+[Install]
+WantedBy=timers.target

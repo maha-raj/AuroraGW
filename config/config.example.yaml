@@ -1,0 +1,44 @@
+interfaces:
+  wan:  { mac: "aa:bb:cc:dd:ee:ff" }
+  lan:  { mac: "11:22:33:44:55:66" }
+  opt1: { mac: "77:88:99:aa:bb:cc" }
+
+segments:
+  - id: lan
+    label: LAN
+    ifref: lan
+    address: 192.168.101.1/24
+    dhcp: { enabled: true, range_start: 192.168.101.100, range_end: 192.168.101.200 }
+
+  - id: opt1
+    label: OPT1
+    ifref: opt1
+    address: 192.168.102.1/24
+    dhcp: { enabled: true, range_start: 192.168.102.100, range_end: 192.168.102.200 }
+
+wan:
+  mode: dhcp
+  pppoe: { username: "", password: "", mtu: 1492 }
+
+services:
+  dhcp: { provider: kea, enabled: true }
+  dns:  { provider: unbound, enabled: true }
+  upnp: { enabled: true, segments_enabled: [lan] }
+  discovery_relay: { enabled: true, segments: [lan, opt1] }
+  qos:
+    enabled: true
+    segments:
+      lan:  { rate_kbit: 950000 }
+      opt1: { rate_kbit: 950000 }
+    wan:
+      enabled: true
+      egress_kbit: 2800000
+      ingress_kbit: 2800000
+      overhead_bytes: 34
+      mpu_bytes: 64
+    dscp_rules: []
+  wireguard: { enabled: false }
+  suricata: { installed: true, enabled: false, interfaces: [lan] }
+
+firewall:
+  port_forwards: []

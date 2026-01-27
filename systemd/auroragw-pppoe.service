@@ -1,0 +1,12 @@
+[Unit]
+Description=AuroraGW PPPoE WAN (pppd)
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=forking
+ExecStart=/usr/bin/pon auroragw-wan
+ExecStop=/usr/bin/poff auroragw-wan
+RemainAfterExit=yes
+Restart=on-failure
+[Install]
+WantedBy=multi-user.target

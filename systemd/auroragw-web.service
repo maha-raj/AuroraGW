@@ -1,0 +1,13 @@
+[Unit]
+Description=AuroraGW Web UI
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=simple
+WorkingDirectory=/opt/auroragw/web
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/auroragw/web/run.sh
+Restart=on-failure
+User=root
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,6 @@
+[Unit]
+Description=AuroraGW Auto-rollback (pending apply)
+After=network-online.target
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/auroragd rollback-pending

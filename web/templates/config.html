@@ -1,0 +1,10 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Config</title></head>
+<body>
+<h1>Config</h1><p><a href="/">Home</a></p>
+<h2>Active</h2><pre style="background:#f3f3f3;padding:8px">{{ active }}</pre>
+<h2>Staging (edit)</h2>
+<form method="post" action="/config">
+<textarea name="staging" style="width:100%;height:420px">{{ staging }}</textarea>
+<button type="submit">Save staging</button>
+</form>
+</body></html>

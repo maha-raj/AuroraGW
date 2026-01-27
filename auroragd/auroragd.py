@@ -3,6 +3,7 @@ import argparse, json, os, shutil, subprocess, tarfile, time
 from pathlib import Path
 import yaml
 import jsonschema
+import ipaddress
 
 BASE = Path("/opt/auroragw")
 SCHEMA_PATH = BASE / "config/schema.json"
@@ -197,6 +198,7 @@ def render_pppoe(cfg, ifs):
 defaultroute
 replacedefaultroute
 hide-password
+usepeerdns
 lcp-echo-interval 20
 lcp-echo-failure 3
 noauth
@@ -210,7 +212,56 @@ user "{user}"
     chap = f'"{user}" * "{pwd}"'
     return peer, chap
 
-def render_unbound(cfg, ifs):
+def discover_system_dns_servers():
+    # Prefer systemd-resolved, fallback to /etc/resolv.conf.
+    servers = []
+    try:
+        out = sh(["bash","-lc","resolvectl dns 2>/dev/null | awk '{for(i=2;i<=NF;i++) print $i}'"]).stdout
+        servers += [x.strip() for x in out.splitlines() if x.strip()]
+    except Exception:
+        pass
+    if not servers:
+        try:
+            text = Path("/etc/resolv.conf").read_text(encoding="utf-8")
+            for line in text.splitlines():
+                line = line.strip()
+                if line.startswith("nameserver "):
+                    servers.append(line.split()[1].strip())
+        except Exception:
+            pass
+    # Filter out local stub addresses.
+    out = []
+    for s in servers:
+        if s in ("127.0.0.53", "127.0.0.1", "::1"):
+            continue
+        try:
+            ipaddress.ip_address(s)
+            out.append(s)
+        except Exception:
+            continue
+    return list(dict.fromkeys(out))
+
+def upstream_dns_servers(cfg):
+    dns = (cfg.get("services", {}).get("dns", {}) or {})
+    upstream = (dns.get("upstream") or {})
+    mode = (upstream.get("mode") or "auto").strip().lower()
+    if mode == "manual":
+        servers = upstream.get("servers") or []
+        out = []
+        for s in servers:
+            s = str(s).strip()
+            if not s:
+                continue
+            try:
+                ipaddress.ip_address(s)
+                out.append(s)
+            except Exception:
+                continue
+        return list(dict.fromkeys(out))
+    # auto
+    return discover_system_dns_servers()
+
+def render_unbound_base(cfg, ifs):
     lan_if = ifname_for(cfg,"lan",ifs)
     opt_if = ifname_for(cfg,"opt1",ifs)
     ips = sh(["bash","-lc", f"ip -4 -o addr show dev {lan_if} | awk '{{print $4}}'"]).stdout.strip().splitlines()
@@ -228,16 +279,20 @@ def render_unbound(cfg, ifs):
   harden-dnssec-stripped: yes
   qname-minimisation: yes
   prefetch: yes
-
-forward-zone:
-  name: "."
-  forward-tls-upstream: no
-  forward-addr: 1.1.1.1
-  forward-addr: 9.9.9.9
+include: "/etc/unbound/unbound.conf.d/auroragw-forwarders.conf"
 '''
+
+def render_unbound_forwarders(servers):
+    if not servers:
+        servers = ["1.1.1.1", "9.9.9.9"]
+    lines = ["forward-zone:", '  name: "."', "  forward-tls-upstream: no"]
+    for s in servers:
+        lines.append(f"  forward-addr: {s}")
+    return "\n".join(lines) + "\n"
 
 def render_kea_dhcp4(cfg, ifs):
     import ipaddress
+    upstream = upstream_dns_servers(cfg)
     subs=[]
     for seg in cfg.get("segments", []):
         dh = (seg.get("dhcp") or {})
@@ -249,13 +304,31 @@ def render_kea_dhcp4(cfg, ifs):
         if not (rs and re):
             continue
         router_ip = str(ipaddress.ip_interface(seg["address"]).ip)
+        dns_mode = ((dh.get("dns") or {}).get("mode") or "router").strip().lower()
+        dns_servers = (dh.get("dns") or {}).get("servers") or []
+        if dns_mode == "manual":
+            out = []
+            for s in dns_servers:
+                s = str(s).strip()
+                if not s:
+                    continue
+                try:
+                    ipaddress.ip_address(s)
+                    out.append(s)
+                except Exception:
+                    continue
+            dns_data = ", ".join(out) if out else router_ip
+        elif dns_mode == "inherit_wan":
+            dns_data = ", ".join(upstream) if upstream else router_ip
+        else:
+            dns_data = router_ip
         subs.append({
             "subnet": subnet,
             "interface": iface,
             "pools": [{"pool": f"{rs} - {re}"}],
             "option-data": [
                 {"name":"routers", "data": router_ip},
-                {"name":"domain-name-servers", "data": router_ip}
+                {"name":"domain-name-servers", "data": dns_data}
             ]
         })
     kea = {
@@ -499,7 +572,10 @@ def cmd_apply(path: str, commit: bool, require_confirm: bool, timeout: int):
 
         if dns.get("enabled", True) and dns.get("provider","unbound") == "unbound":
             Path("/etc/unbound/unbound.conf.d").mkdir(parents=True, exist_ok=True)
-            Path("/etc/unbound/unbound.conf.d/auroragw.conf").write_text(render_unbound(cfg, ifs), encoding="utf-8")
+            Path("/etc/unbound/unbound.conf.d/auroragw.conf").write_text(render_unbound_base(cfg, ifs), encoding="utf-8")
+            Path("/etc/unbound/unbound.conf.d/auroragw-forwarders.conf").write_text(
+                render_unbound_forwarders(upstream_dns_servers(cfg)), encoding="utf-8"
+            )
             sh(["systemctl","enable","--now","unbound"], check=False)
             sh(["systemctl","restart","unbound"], check=False)
 

@@ -8,3 +8,6 @@ if [[ "$WAN_MODE" == "pppoe" ]]; then
 fi
 systemctl is-active --quiet nftables || systemctl restart nftables || true
 systemctl is-active --quiet auroragw-web || systemctl restart auroragw-web || true
+
+# Keep Unbound forwarders aligned to current WAN-learned DNS when in auto mode.
+/opt/auroragw/scripts/update-unbound-forwarders.sh || true

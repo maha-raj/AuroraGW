@@ -1,0 +1,69 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>DNS</title>
+  </head>
+  <body>
+    <h1>DNS</h1>
+    <p><a href="/">Home</a></p>
+
+    <p>Edits staging config. Click Apply on the Status page to activate.</p>
+
+    <form method="post" action="/dns">
+      <h2>Router upstream DNS (Unbound forwarders)</h2>
+      <p>
+        Default is <b>auto</b> (use DNS learned from WAN via DHCP or PPPoE).
+        Manual overrides let you pin upstream resolvers.
+      </p>
+      <label>mode
+        <select name="upstream_mode">
+          <option value="auto" {% if up_mode == "auto" %}selected{% endif %}>auto (WAN learned)</option>
+          <option value="manual" {% if up_mode == "manual" %}selected{% endif %}>manual</option>
+        </select>
+      </label>
+      <label>manual servers (comma/space separated)
+        <input type="text" name="upstream_servers" value="{{ up_servers }}" size="60" placeholder="1.1.1.1, 9.9.9.9" />
+      </label>
+
+      <h2>DHCP DNS for LAN/OPT1 clients</h2>
+      <p>
+        <b>router</b> = hand out the segment gateway (AuroraGW/Unbound).<br/>
+        <b>inherit_wan</b> = hand out the WAN-learned DNS servers to clients.<br/>
+        <b>manual</b> = hand out your custom DNS servers to clients.
+      </p>
+
+      <table border="1" cellpadding="6" cellspacing="0">
+        <tr>
+          <th>segment</th>
+          <th>address</th>
+          <th>DHCP</th>
+          <th>DNS mode</th>
+          <th>manual DNS servers</th>
+        </tr>
+        {% for s in segments %}
+        <tr>
+          <td>
+            <input type="hidden" name="seg_id" value="{{ s.id }}" />
+            <b>{{ s.id }}</b> {{ s.label }}
+          </td>
+          <td>{{ s.address }}</td>
+          <td>{{ "on" if s.dhcp_enabled else "off" }}</td>
+          <td>
+            <select name="seg_dns_mode">
+              <option value="router" {% if s.dns_mode == "router" %}selected{% endif %}>router</option>
+              <option value="inherit_wan" {% if s.dns_mode == "inherit_wan" %}selected{% endif %}>inherit_wan</option>
+              <option value="manual" {% if s.dns_mode == "manual" %}selected{% endif %}>manual</option>
+            </select>
+          </td>
+          <td>
+            <input type="text" name="seg_dns_servers" value="{{ s.dns_servers }}" size="50" placeholder="1.1.1.1, 9.9.9.9" />
+          </td>
+        </tr>
+        {% endfor %}
+      </table>
+
+      <p><button type="submit">Save DNS settings to staging</button></p>
+    </form>
+  </body>
+</html>

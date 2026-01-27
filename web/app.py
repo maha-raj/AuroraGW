@@ -4,6 +4,7 @@ import threading
 from collections import deque
 from pathlib import Path
 from typing import List
+import ipaddress
 import yaml
 from fastapi import FastAPI, Request, Response, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, PlainTextResponse
@@ -172,6 +173,20 @@ class TrafficMonitor:
 
 TRAFFIC = TrafficMonitor()
 threading.Thread(target=TRAFFIC.run_forever, daemon=True).start()
+
+def parse_dns_list(raw: str) -> list[str]:
+    parts = []
+    for tok in (raw or "").replace(",", " ").split():
+        tok = tok.strip()
+        if not tok:
+            continue
+        try:
+            ipaddress.ip_address(tok)
+            parts.append(tok)
+        except Exception:
+            continue
+    # unique, keep order
+    return list(dict.fromkeys(parts))
 
 @app.middleware("http")
 async def metrics_mw(request: Request, call_next):
@@ -367,6 +382,81 @@ def evebox_post(request: Request, enabled: str = Form("0")):
     save_yaml(CFG_STAGING, cfg)
     audit(f"evebox updated enabled={cfg['services']['evebox']['enabled']}")
     return RedirectResponse(url="/evebox", status_code=303)
+
+@app.get("/dns", response_class=HTMLResponse)
+def dns_get(request: Request):
+    require_auth(request)
+    cfg = load_yaml(CFG_STAGING if CFG_STAGING.exists() else CFG_ACTIVE)
+
+    dns = ((cfg.get("services") or {}).get("dns") or {})
+    upstream = (dns.get("upstream") or {})
+    up_mode = (upstream.get("mode") or "auto").strip().lower()
+    up_servers = upstream.get("servers") or []
+    up_servers_text = ", ".join([str(x) for x in up_servers])
+
+    seg_rows = []
+    for seg in (cfg.get("segments") or []):
+        dh = (seg.get("dhcp") or {})
+        dh_enabled = bool(dh.get("enabled", False))
+        dns_cfg = (dh.get("dns") or {})
+        seg_rows.append(
+            {
+                "id": seg.get("id", ""),
+                "label": seg.get("label", ""),
+                "address": seg.get("address", ""),
+                "dhcp_enabled": dh_enabled,
+                "dns_mode": (dns_cfg.get("mode") or "router").strip().lower(),
+                "dns_servers": ", ".join([str(x) for x in (dns_cfg.get("servers") or [])]),
+            }
+        )
+
+    return templates.TemplateResponse(
+        "dns.html",
+        {
+            "request": request,
+            "up_mode": up_mode,
+            "up_servers": up_servers_text,
+            "segments": seg_rows,
+        },
+    )
+
+@app.post("/dns")
+def dns_post(
+    request: Request,
+    upstream_mode: str = Form("auto"),
+    upstream_servers: str = Form(""),
+    seg_id: List[str] = Form([]),
+    seg_dns_mode: List[str] = Form([]),
+    seg_dns_servers: List[str] = Form([]),
+):
+    require_auth(request)
+    cfg = load_yaml(CFG_STAGING if CFG_STAGING.exists() else CFG_ACTIVE)
+    cfg.setdefault("services", {})
+    cfg["services"].setdefault("dns", {})
+    cfg["services"]["dns"].setdefault("upstream", {})
+
+    upstream_mode = (upstream_mode or "auto").strip().lower()
+    if upstream_mode not in ("auto", "manual"):
+        upstream_mode = "auto"
+    cfg["services"]["dns"]["upstream"]["mode"] = upstream_mode
+    cfg["services"]["dns"]["upstream"]["servers"] = parse_dns_list(upstream_servers) if upstream_mode == "manual" else []
+
+    by_id = {str(s.get("id")): s for s in (cfg.get("segments") or [])}
+    for i, sid in enumerate(seg_id):
+        seg = by_id.get(str(sid))
+        if not seg:
+            continue
+        seg.setdefault("dhcp", {})
+        seg["dhcp"].setdefault("dns", {})
+        mode = (seg_dns_mode[i] if i < len(seg_dns_mode) else "router").strip().lower()
+        if mode not in ("router", "inherit_wan", "manual"):
+            mode = "router"
+        seg["dhcp"]["dns"]["mode"] = mode
+        seg["dhcp"]["dns"]["servers"] = parse_dns_list(seg_dns_servers[i]) if (mode == "manual" and i < len(seg_dns_servers)) else []
+
+    save_yaml(CFG_STAGING, cfg)
+    audit("dns settings updated")
+    return RedirectResponse(url="/dns", status_code=303)
 
 @app.post("/backup")
 def backup(request: Request):

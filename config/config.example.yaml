@@ -8,13 +8,21 @@ segments:
     label: LAN
     ifref: lan
     address: 192.168.101.1/24
-    dhcp: { enabled: true, range_start: 192.168.101.100, range_end: 192.168.101.200 }
+    dhcp:
+      enabled: true
+      range_start: 192.168.101.100
+      range_end: 192.168.101.200
+      dns: { mode: router }
 
   - id: opt1
     label: OPT1
     ifref: opt1
     address: 192.168.102.1/24
-    dhcp: { enabled: true, range_start: 192.168.102.100, range_end: 192.168.102.200 }
+    dhcp:
+      enabled: true
+      range_start: 192.168.102.100
+      range_end: 192.168.102.200
+      dns: { mode: router }
 
 wan:
   mode: dhcp
@@ -22,7 +30,12 @@ wan:
 
 services:
   dhcp: { provider: kea, enabled: true }
-  dns:  { provider: unbound, enabled: true }
+  dns:
+    provider: unbound
+    enabled: true
+    upstream:
+      mode: auto        # auto (use WAN-learned DNS) or manual
+      servers: []       # used when mode=manual
   upnp: { enabled: true, segments_enabled: [lan] }
   discovery_relay: { enabled: true, segments: [lan, opt1] }
   qos:

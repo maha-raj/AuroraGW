@@ -105,6 +105,25 @@
               },
               "enabled": {
                 "type": "boolean"
+              },
+              "dns": {
+                "type": "object",
+                "properties": {
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "router",
+                      "inherit_wan",
+                      "manual"
+                    ]
+                  },
+                  "servers": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
               }
             }
           }
@@ -155,6 +174,24 @@
             },
             "enabled": {
               "type": "boolean"
+            },
+            "upstream": {
+              "type": "object",
+              "properties": {
+                "mode": {
+                  "type": "string",
+                  "enum": [
+                    "auto",
+                    "manual"
+                  ]
+                },
+                "servers": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
             }
           }
         },

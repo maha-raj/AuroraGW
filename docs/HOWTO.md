@@ -38,6 +38,7 @@ sudo /opt/auroragw/install/auroragw-install.sh --reconfigure
 - `/status`: Apply/Confirm
   - “Apply staging” runs a safe apply and (by default) requires confirmation within 120s
   - “Confirm” commits the pending apply
+- `/dns`: router upstream DNS + per-segment DHCP DNS (then Apply/Confirm)
 - `/firewall`: add/remove **port forwards** (WAN → LAN/OPT1)
 - `/suricata`: enable/disable IDS + select interfaces (then Apply/Confirm)
 - `/evebox`: enable/disable EveBox (then Apply/Confirm) and open EveBox UI on port 5636
@@ -172,3 +173,38 @@ services:
 - **off**: no sampling, `/traffic` is empty
 - **basic**: low-rate sampling (recommended)
 - **advanced**: higher-rate sampling + short history shown in `/traffic`
+
+## 12) DNS configuration (WAN-learned defaults + per-segment overrides)
+
+AuroraGW uses **Unbound** for DNS by default. By default, Unbound forwards to the DNS servers learned from WAN
+(DHCP in bootstrap mode, PPPoE in production mode).
+
+Configure in Web UI:
+- `DNS` page: `/dns`
+  - **Router upstream DNS**: `auto` (WAN-learned) or `manual` (pin resolver IPs)
+  - **DHCP DNS per segment**:
+    - `router`: clients use AuroraGW (recommended)
+    - `inherit_wan`: clients use the WAN-learned DNS directly
+    - `manual`: clients use your provided DNS servers
+
+YAML examples:
+```yaml
+services:
+  dns:
+    provider: unbound
+    enabled: true
+    upstream:
+      mode: auto
+      servers: []
+
+segments:
+  - id: lan
+    dhcp:
+      enabled: true
+      dns: { mode: router }
+
+  - id: opt1
+    dhcp:
+      enabled: true
+      dns: { mode: manual, servers: ["1.1.1.1", "9.9.9.9"] }
+```

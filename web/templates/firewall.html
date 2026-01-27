@@ -1,0 +1,54 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Firewall</title>
+  </head>
+  <body>
+    <h1>Firewall</h1>
+    <p><a href="/">Home</a></p>
+
+    <h2>Port forwards (WAN → LAN/OPT1)</h2>
+    <p>Edits staging config. Click Apply on the Status page to activate.</p>
+
+    <table border="1" cellpadding="6" cellspacing="0">
+      <tr>
+        <th>#</th>
+        <th>Proto</th>
+        <th>WAN port</th>
+        <th>LAN IP</th>
+        <th>LAN port</th>
+        <th>Action</th>
+      </tr>
+      {% for r in port_forwards %}
+      <tr>
+        <td>{{ loop.index0 }}</td>
+        <td>{{ r.get("proto","") }}</td>
+        <td>{{ r.get("wan_port","") }}</td>
+        <td>{{ r.get("lan_ip","") }}</td>
+        <td>{{ r.get("lan_port","") }}</td>
+        <td>
+          <form method="post" action="/firewall/delete" style="margin: 0">
+            <input type="hidden" name="idx" value="{{ loop.index0 }}" />
+            <button type="submit">Delete</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+
+    <h3>Add port forward</h3>
+    <form method="post" action="/firewall/add">
+      <label>proto
+        <select name="proto">
+          <option value="tcp">tcp</option>
+          <option value="udp">udp</option>
+        </select>
+      </label>
+      <label>WAN port <input type="number" name="wan_port" min="1" max="65535" required /></label>
+      <label>LAN IP <input type="text" name="lan_ip" placeholder="192.168.101.10" required /></label>
+      <label>LAN port <input type="number" name="lan_port" min="1" max="65535" required /></label>
+      <button type="submit">Add</button>
+    </form>
+  </body>
+</html>

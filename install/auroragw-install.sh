@@ -2,20 +2,29 @@
 set -euo pipefail
 [[ $EUID -eq 0 ]] || { echo "Run as root."; exit 1; }
 ACTION="${1:-}"
+RECONFIGURE=0
+if [[ "$ACTION" == "--reconfigure" || "$ACTION" == "reconfigure" ]]; then
+  RECONFIGURE=1
+fi
 export DEBIAN_FRONTEND=noninteractive
 
-apt-get update
-apt-get install -y --no-install-recommends \
-  curl ca-certificates jq \
-  nftables iproute2 iputils-ping tcpdump ethtool \
-  ppp rp-pppoe \
-  python3 python3-venv python3-pip python3-yaml python3-jsonschema \
-  isc-kea unbound \
-  miniupnpd-nftables \
-  python3-netifaces \
-  speedtest-cli \
-  || true
-apt-get install -y --no-install-recommends suricata openssl whiptail rsync || true
+if [[ $RECONFIGURE -eq 0 ]]; then
+  apt-get update
+  apt-get install -y --no-install-recommends \
+    curl ca-certificates jq \
+    nftables iproute2 iputils-ping tcpdump ethtool \
+    ppp rp-pppoe \
+    python3 python3-venv python3-pip python3-yaml python3-jsonschema \
+    isc-kea unbound \
+    miniupnpd-nftables \
+    cockpit \
+    python3-netifaces \
+    speedtest-cli \
+    || true
+  apt-get install -y --no-install-recommends suricata openssl whiptail rsync || true
+else
+  echo "== Reconfigure mode: skipping apt install =="
+fi
 
 UI=plain
 command -v whiptail >/dev/null 2>&1 && UI=whiptail
@@ -40,19 +49,30 @@ pick_mac() {
 }
 
 ADMIN_PASS="admin"
+if [[ $RECONFIGURE -eq 1 && -f /etc/auroragw/secrets.yaml ]]; then
+  ADMIN_PASS="$(awk -F': ' '/^admin_password:/{gsub(/"/,"",$2); print $2}' /etc/auroragw/secrets.yaml 2>/dev/null || echo admin)"
+  [[ -n "$ADMIN_PASS" ]] || ADMIN_PASS="admin"
+fi
 WAN_MODE="dhcp"
 LAN_ADDR="192.168.101.1/24"
 OPT1_ADDR="192.168.102.1/24"
 UPNP_OPT1=0
 DISCOVERY_RELAY=1
 SURICATA_ENABLE=0
+COCKPIT_ENABLE=0
 
 WAN_MAC=$(pick_mac "WAN interface")
 LAN_MAC=$(pick_mac "LAN interface")
 OPT1_MAC=$(pick_mac "OPT1 interface")
 
 if [[ "$UI" == "whiptail" ]]; then
-  ADMIN_PASS=$(whiptail --passwordbox "Set admin password for Web UI (user: admin)" 10 78 "" 3>&1 1>&2 2>&3)
+  if [[ $RECONFIGURE -eq 1 ]]; then
+    if whiptail --yesno "Change admin password for Web UI?" 10 78; then
+      ADMIN_PASS=$(whiptail --passwordbox "Set admin password for Web UI (user: admin)" 10 78 "" 3>&1 1>&2 2>&3)
+    fi
+  else
+    ADMIN_PASS=$(whiptail --passwordbox "Set admin password for Web UI (user: admin)" 10 78 "" 3>&1 1>&2 2>&3)
+  fi
   LAN_ADDR=$(whiptail --inputbox "LAN address/CIDR" 10 78 "$LAN_ADDR" 3>&1 1>&2 2>&3)
   OPT1_ADDR=$(whiptail --inputbox "OPT1 address/CIDR" 10 78 "$OPT1_ADDR" 3>&1 1>&2 2>&3)
   WAN_MODE=$(whiptail --title "WAN mode" --menu "Select WAN mode" 15 70 3 \
@@ -61,6 +81,7 @@ if [[ "$UI" == "whiptail" ]]; then
   whiptail --yesno "Enable UPnP on OPT1 too? (LAN is enabled by default)" 10 78 && UPNP_OPT1=1 || UPNP_OPT1=0
   whiptail --yesno "Enable discovery relay (mDNS+SSDP) LAN<->OPT1 for TVs/Cast devices?" 10 78 && DISCOVERY_RELAY=1 || DISCOVERY_RELAY=0
   whiptail --yesno "Enable Suricata IDS now? (Installed; default OFF for performance)" 10 78 && SURICATA_ENABLE=1 || SURICATA_ENABLE=0
+  whiptail --yesno "Enable Cockpit system console on LAN? (https://<LAN-IP>:9090)" 10 78 && COCKPIT_ENABLE=1 || COCKPIT_ENABLE=0
 else
   read -r -s -p "Admin password (user: admin) [default admin]: " x; echo; [[ -n "${x:-}" ]] && ADMIN_PASS="$x"
 fi
@@ -141,6 +162,7 @@ services:
     dscp_rules: []
   wireguard: { enabled: false }
   suricata: { installed: true, enabled: $( [[ $SURICATA_ENABLE -eq 1 ]] && echo true || echo false ), interfaces: [lan] }
+  cockpit: { enabled: $( [[ $COCKPIT_ENABLE -eq 1 ]] && echo true || echo false ) }
 
 firewall:
   port_forwards: []

@@ -39,6 +39,7 @@ services:
     dscp_rules: []
   wireguard: { enabled: false }
   suricata: { installed: true, enabled: false, interfaces: [lan] }
+  cockpit: { enabled: false }
 
 firewall:
   port_forwards: []

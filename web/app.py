@@ -46,6 +46,15 @@ def audit(msg: str):
     with AUDIT.open("a", encoding="utf-8") as f:
         f.write(f"[{ts}] ui {msg}\n")
 
+def load_yaml(path: Path) -> dict:
+    if not path.exists():
+        return {}
+    return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+
+def save_yaml(path: Path, data: dict):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+
 @app.middleware("http")
 async def metrics_mw(request: Request, call_next):
     resp = await call_next(request)
@@ -109,6 +118,50 @@ def backups(request: Request):
     require_auth(request)
     out = sh(["bash","-lc","ls -1 /var/lib/auroragw/backups 2>/dev/null || true"]).stdout
     return templates.TemplateResponse("backups.html", {"request":request, "backups":out})
+
+@app.get("/firewall", response_class=HTMLResponse)
+def firewall_get(request: Request):
+    require_auth(request)
+    cfg = load_yaml(CFG_STAGING if CFG_STAGING.exists() else CFG_ACTIVE)
+    pf = (((cfg.get("firewall") or {}).get("port_forwards")) or [])
+    return templates.TemplateResponse("firewall.html", {"request": request, "port_forwards": pf})
+
+@app.post("/firewall/add")
+def firewall_add(
+    request: Request,
+    proto: str = Form(...),
+    wan_port: int = Form(...),
+    lan_ip: str = Form(...),
+    lan_port: int = Form(...),
+):
+    require_auth(request)
+    proto = (proto or "").strip().lower()
+    if proto not in ("tcp", "udp"):
+        raise HTTPException(status_code=400, detail="proto must be tcp or udp")
+    if wan_port < 1 or wan_port > 65535 or lan_port < 1 or lan_port > 65535:
+        raise HTTPException(status_code=400, detail="invalid port")
+    cfg = load_yaml(CFG_STAGING if CFG_STAGING.exists() else CFG_ACTIVE)
+    cfg.setdefault("firewall", {})
+    cfg["firewall"].setdefault("port_forwards", [])
+    cfg["firewall"]["port_forwards"].append(
+        {"proto": proto, "wan_port": int(wan_port), "lan_ip": lan_ip.strip(), "lan_port": int(lan_port)}
+    )
+    save_yaml(CFG_STAGING, cfg)
+    audit(f"firewall add port_forward {proto}:{wan_port}->{lan_ip}:{lan_port}")
+    return RedirectResponse(url="/firewall", status_code=303)
+
+@app.post("/firewall/delete")
+def firewall_delete(request: Request, idx: int = Form(...)):
+    require_auth(request)
+    cfg = load_yaml(CFG_STAGING if CFG_STAGING.exists() else CFG_ACTIVE)
+    cfg.setdefault("firewall", {})
+    cfg["firewall"].setdefault("port_forwards", [])
+    if idx < 0 or idx >= len(cfg["firewall"]["port_forwards"]):
+        raise HTTPException(status_code=400, detail="invalid index")
+    removed = cfg["firewall"]["port_forwards"].pop(idx)
+    save_yaml(CFG_STAGING, cfg)
+    audit(f"firewall delete port_forward {removed}")
+    return RedirectResponse(url="/firewall", status_code=303)
 
 @app.post("/backup")
 def backup(request: Request):

@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 echo "== AuroraGW smoke tests =="
-systemctl --no-pager --plain is-active nftables dnsmasq >/dev/null
-echo "OK: nftables + dnsmasq active"
+systemctl --no-pager --plain is-active nftables auroragw-web >/dev/null
+echo "OK: nftables + auroragw-web active"
+systemctl --no-pager --plain is-active kea-dhcp4-server unbound >/dev/null
+echo "OK: kea-dhcp4-server + unbound active"
 nft list ruleset | grep -q "table inet filter"
 echo "OK: nftables ruleset present"
-ss -ltn | grep -q ":8080"
-echo "OK: status server listening"
+ss -ltn | grep -q ":8443"
+echo "OK: web UI listening (8443)"
 echo "Done."
 
 # PPPoE optional check

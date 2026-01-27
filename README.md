@@ -38,6 +38,9 @@ After install:
 - Web UI (LAN-only): `https://<LAN-IP>:8443/`  (self-signed cert)
 - Login: HTTP Basic `admin` + the password you set in installer
 
+Optional:
+- Cockpit system console (LAN-only, if enabled in installer): `https://<LAN-IP>:9090/`
+
 ### Reconfigure later
 ```bash
 sudo /opt/auroragw/install/auroragw-install.sh --reconfigure

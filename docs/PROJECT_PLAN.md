@@ -199,7 +199,7 @@ segments:
 Note: This repo currently standardizes on **Kea + Unbound** to match the performance/security direction of AuroraGW.
 
 ### 7.5 VPN
-- Install-now: WireGuard
+- Roadmap: WireGuard (planned)
 
 ---
 
@@ -224,8 +224,7 @@ Devices split across **LAN ↔ OPT1**:
 - UPnP port mapping from LAN (OPT1 optional)
 
 ### 9.1 mDNS/Bonjour (Install Now)
-- Install `avahi-daemon`
-- Enable reflector mode scoped **only** between LAN ↔ OPT1
+- Enable mDNS relay scoped **only** between LAN ↔ OPT1 (implemented via a multicast relay module)
 
 **Firewall preset: “LAN → OPT1: Printers + Cast”**
 - mDNS discovery: UDP 5353 to/from reflector
@@ -313,12 +312,12 @@ A single script (or suite) that verifies:
 | PPPoE WAN via `pppd` | Yes | Yes |
 | IPv4 routing + NAT | Yes | Yes |
 | Stateful firewall (nftables) | Yes | Yes |
-| nftables flowtable fastpath option | Yes | Yes |
+| nftables flowtable fastpath option | No | Yes |
 | Dynamic segments (LAN/OPT1/extra NICs) | Yes | Yes |
 | DHCP (Kea) | Yes | Yes |
 | DNS resolver (Unbound) | Yes | Yes |
 | dnsmasq fallback (DHCP/DNS) | No | Yes (Optional) |
-| WireGuard VPN | Yes | Yes |
+| WireGuard VPN | No | Yes |
 | OpenVPN VPN | No | Yes |
 | QoS: CAKE per segment | Yes | Yes |
 | DSCP marking rules (nft mangle) | Yes | Yes |
@@ -327,8 +326,8 @@ A single script (or suite) that verifies:
 | Self-heal: PPPoE restart + incident timeline | Yes | Yes |
 | Audit logging of config changes | Yes | Yes |
 | Backup/restore (CLI + UI) | Yes | Yes |
-| mDNS/Bonjour (Avahi) | Yes | Yes |
-| mDNS reflector scoped to LAN↔OPT1 | Yes | Yes |
+| mDNS relay (LAN↔OPT1) | Yes | Yes |
+| mDNS relay scoped to LAN↔OPT1 | Yes | Yes |
 | AirPrint support across segments via mDNS (and print ports) | Yes | Yes |
 | Chromecast/Cast discovery across segments via mDNS | Yes | Yes |
 | SSDP relay module for DLNA/TV/FireTV discovery (UDP 1900) | No | Yes |
@@ -348,7 +347,6 @@ A single script (or suite) that verifies:
 - WireGuard quick start: https://www.wireguard.com/quickstart/  
 - Apple AirPrint DNS-SD records guidance: https://support.apple.com/en-ca/guide/deployment/dep3b4cf515/web  
 - Google Cast discovery: https://developers.google.com/cast/docs/discovery  
-- Avahi config (reflector): https://manpages.debian.org/unstable/avahi-daemon/avahi-daemon.conf.5.en.html  
 - SSDP port registry (1900/udp): https://www.iana.org/assignments/service-names-port-numbers/service-names-port-numbers.xhtml?search=1900  
 - multicast-relay (SSDP/mDNS relay tool): https://github.com/alsmith/multicast-relay  
 - miniupnpd nftables backend package: https://packages.debian.org/sid/miniupnpd-nftables  

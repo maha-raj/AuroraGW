@@ -98,6 +98,8 @@ def render_nft(cfg, ifs):
     lan_if = ifname_for(cfg,"lan",ifs)
     opt_if = ifname_for(cfg,"opt1",ifs)
     nat_oif = "pppoe0" if cfg["wan"]["mode"] == "pppoe" else wan_if
+    discovery_enabled = bool((cfg.get("services", {}) or {}).get("discovery_relay", {}).get("enabled", False))
+    cockpit_enabled = bool((cfg.get("services", {}) or {}).get("cockpit", {}).get("enabled", False))
 
     dscp_rules = (cfg.get("services", {}).get("qos", {}) or {}).get("dscp_rules", []) or []
     dscp_lines=[]
@@ -132,7 +134,7 @@ table inet filter {{
     ct state established,related accept
 
     # mgmt: LAN only (ssh + web)
-    iifname "{lan_if}" tcp dport {{22,8443}} accept
+    iifname "{lan_if}" tcp dport {{22,8443{',9090' if cockpit_enabled else ''}}} accept
 
     # DHCP/DNS to router (LAN/OPT1)
     iifname "{lan_if}" udp dport {{53,67,547,5353,1900}} accept
@@ -154,9 +156,11 @@ table inet filter {{
     iifname "{lan_if}" oifname "{nat_oif}" accept
     iifname "{opt_if}" oifname "{nat_oif}" accept
 
-    # allow LAN<->OPT1 for home device flows + discovery responses
+    # Home layout default:
+    # - LAN -> OPT1 allowed (PCs/controllers reach printers/IoT)
+    # - OPT1 -> LAN blocked by default (IoT isolation)
     iifname "{lan_if}" oifname "{opt_if}" accept
-    iifname "{opt_if}" oifname "{lan_if}" accept
+    {'iifname "' + opt_if + '" oifname "' + lan_if + '" udp dport {5353,1900} accept' if discovery_enabled else '# (discovery relay disabled; OPT1 -> LAN remains blocked)'}
   }}
 }}
 
@@ -286,6 +290,49 @@ def render_discovery_relay(cfg, ifs):
         if s in ("lan","opt1"):
             ifaces.append(ifname_for(cfg, s, ifs))
     return ifaces
+
+def resolve_iface_token(cfg, ifs, token: str):
+    t = (token or "").strip()
+    if not t:
+        return None
+    if t in ("wan", "lan", "opt1"):
+        return ifname_for(cfg, t, ifs)
+    if t == "pppoe0":
+        return "pppoe0"
+    return t
+
+def apply_suricata(cfg, ifs):
+    s = (cfg.get("services", {}).get("suricata", {}) or {})
+    if not s.get("installed", False):
+        return
+    enabled = bool(s.get("enabled", False))
+    iface_tokens = s.get("interfaces", []) or []
+    ifnames = []
+    for tok in iface_tokens:
+        ifname = resolve_iface_token(cfg, ifs, str(tok))
+        if ifname:
+            ifnames.append(ifname)
+    ifnames = list(dict.fromkeys(ifnames))
+
+    # Best-effort: stop any previously enabled instances we know about.
+    for ifn in set(ifnames + [ifname_for(cfg, "lan", ifs), ifname_for(cfg, "opt1", ifs), ifname_for(cfg, "wan", ifs), "pppoe0"]):
+        sh(["bash","-lc", f"systemctl disable --now 'auroragw-suricata@{ifn}.service' 2>/dev/null || true"], check=False)
+
+    if not enabled:
+        return
+
+    # IDS mode (passive sniff). Users can choose interfaces; avoid enabling on WAN by default for throughput.
+    for ifn in ifnames:
+        sh(["bash","-lc", f"ip link show '{ifn}' >/dev/null 2>&1 || true"], check=False)
+        sh(["bash","-lc", f"systemctl enable --now 'auroragw-suricata@{ifn}.service'"], check=False)
+        sh(["bash","-lc", f"systemctl restart 'auroragw-suricata@{ifn}.service'"], check=False)
+
+def apply_cockpit(cfg):
+    enabled = bool((cfg.get("services", {}) or {}).get("cockpit", {}).get("enabled", False))
+    if enabled:
+        sh(["bash","-lc","systemctl enable --now cockpit.socket 2>/dev/null || systemctl enable --now cockpit || true"], check=False)
+    else:
+        sh(["bash","-lc","systemctl disable --now cockpit.socket cockpit 2>/dev/null || true"], check=False)
 
 def apply_qos(cfg, ifs):
     qos = cfg.get("services", {}).get("qos", {}) or {}
@@ -474,6 +521,10 @@ WantedBy=multi-user.target
             sh(["systemctl","disable","--now","auroragw-discovery-relay.service"], check=False)
 
         apply_qos(cfg, ifs)
+
+        apply_suricata(cfg, ifs)
+
+        apply_cockpit(cfg)
 
         sh(["systemctl","enable","--now","auroragw-web"], check=False)
         sh(["systemctl","restart","auroragw-web"], check=False)

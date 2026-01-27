@@ -39,6 +39,7 @@ sudo /opt/auroragw/install/auroragw-install.sh --reconfigure
   - “Apply staging” runs a safe apply and (by default) requires confirmation within 120s
   - “Confirm” commits the pending apply
 - `/firewall`: add/remove **port forwards** (WAN → LAN/OPT1)
+- `/suricata`: enable/disable IDS + select interfaces (then Apply/Confirm)
 - `/traffic`: interface rates/counters (optional; see section 11)
 
 ## 4) WAN mode: DHCP ↔ PPPoE

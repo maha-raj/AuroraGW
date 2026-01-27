@@ -3,6 +3,7 @@ import base64, hmac, time, subprocess
 import threading
 from collections import deque
 from pathlib import Path
+from typing import List
 import yaml
 from fastapi import FastAPI, Request, Response, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, PlainTextResponse
@@ -290,6 +291,54 @@ def firewall_delete(request: Request, idx: int = Form(...)):
     save_yaml(CFG_STAGING, cfg)
     audit(f"firewall delete port_forward {removed}")
     return RedirectResponse(url="/firewall", status_code=303)
+
+@app.get("/suricata", response_class=HTMLResponse)
+def suricata_get(request: Request):
+    require_auth(request)
+    cfg = load_yaml(CFG_STAGING if CFG_STAGING.exists() else CFG_ACTIVE)
+    s = ((cfg.get("services") or {}).get("suricata") or {})
+    enabled = bool(s.get("enabled", False))
+    interfaces = [str(x) for x in (s.get("interfaces") or [])]
+
+    # Keep config portable: use role tokens (resolved to ifnames during apply).
+    iface_tokens = ["lan", "opt1", "wan", "pppoe0"]
+
+    status = sh(["bash", "-lc", "systemctl --no-pager --plain status 'auroragw-suricata@*.service' 2>/dev/null || true"]).stdout
+    logs = sh(["bash", "-lc", "journalctl -u 'auroragw-suricata@*.service' -n 200 --no-pager 2>/dev/null || true"]).stdout
+    fast = sh(["bash", "-lc", "tail -n 120 /var/log/suricata/fast.log 2>/dev/null || true"]).stdout
+    if fast.strip():
+        logs = logs + "\n\n== /var/log/suricata/fast.log (tail) ==\n" + fast
+
+    return templates.TemplateResponse(
+        "suricata.html",
+        {
+            "request": request,
+            "enabled": enabled,
+            "interfaces": interfaces,
+            "iface_tokens": iface_tokens,
+            "status": status,
+            "logs": logs,
+        },
+    )
+
+@app.post("/suricata")
+def suricata_post(
+    request: Request,
+    enabled: str = Form("0"),
+    interfaces: List[str] = Form([]),
+):
+    require_auth(request)
+    cfg = load_yaml(CFG_STAGING if CFG_STAGING.exists() else CFG_ACTIVE)
+    cfg.setdefault("services", {})
+    cfg["services"].setdefault("suricata", {})
+
+    cfg["services"]["suricata"]["installed"] = True
+    cfg["services"]["suricata"]["enabled"] = (enabled == "1")
+    cfg["services"]["suricata"]["interfaces"] = [str(x).strip() for x in interfaces if str(x).strip()]
+
+    save_yaml(CFG_STAGING, cfg)
+    audit(f"suricata updated enabled={cfg['services']['suricata']['enabled']} interfaces={cfg['services']['suricata']['interfaces']}")
+    return RedirectResponse(url="/suricata", status_code=303)
 
 @app.post("/backup")
 def backup(request: Request):

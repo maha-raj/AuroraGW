@@ -1,0 +1,53 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Traffic</title>
+  </head>
+  <body>
+    <h1>Traffic</h1>
+    <p><a href="/">Home</a></p>
+
+    <p>
+      Mode: <b>{{ traffic.get("mode") }}</b>
+      (sample interval {{ traffic.get("interval_s") }}s)
+    </p>
+    <p>
+      Configure via staging YAML under:
+      <code>services.monitoring.mode</code> = <code>off</code> | <code>basic</code> | <code>advanced</code>
+    </p>
+
+    <h2>Interfaces</h2>
+    <table border="1" cellpadding="6" cellspacing="0">
+      <tr>
+        <th>iface</th>
+        <th>rx Mbps</th>
+        <th>tx Mbps</th>
+        <th>rx bytes</th>
+        <th>tx bytes</th>
+        <th>rx drops</th>
+        <th>tx drops</th>
+        <th>rx errs</th>
+        <th>tx errs</th>
+      </tr>
+      {% for iface, v in (traffic.get("rates") or {}).items() %}
+      <tr>
+        <td>{{ iface }}</td>
+        <td>{{ v.get("rx_mbps","") }}</td>
+        <td>{{ v.get("tx_mbps","") }}</td>
+        <td>{{ v.get("rx_bytes","") }}</td>
+        <td>{{ v.get("tx_bytes","") }}</td>
+        <td>{{ v.get("rx_dropped","") }}</td>
+        <td>{{ v.get("tx_dropped","") }}</td>
+        <td>{{ v.get("rx_errors","") }}</td>
+        <td>{{ v.get("tx_errors","") }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+
+    {% if traffic.get("mode") == "advanced" %}
+    <h2>Advanced history (last {{ (traffic.get("history") or [])|length }} samples)</h2>
+    <pre style="max-height: 360px; overflow: auto;">{{ (traffic.get("history") or []) | tojson(indent=2) }}</pre>
+    {% endif %}
+  </body>
+</html>

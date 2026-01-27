@@ -37,6 +37,12 @@ services:
       overhead_bytes: 34
       mpu_bytes: 64
     dscp_rules: []
+  monitoring:
+    # off: disabled (no sampling)
+    # basic: low-rate sampling (recommended default)
+    # advanced: higher-rate sampling + short history (troubleshooting)
+    mode: basic
+    # interfaces: [lan, opt1, wan]  # optional; defaults to all interfaces
   wireguard: { enabled: false }
   suricata: { installed: true, enabled: false, interfaces: [lan] }
   cockpit: { enabled: false }

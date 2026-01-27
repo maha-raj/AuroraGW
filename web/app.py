@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 import base64, hmac, time, subprocess
+import threading
+from collections import deque
 from pathlib import Path
 import yaml
 from fastapi import FastAPI, Request, Response, Form, HTTPException
@@ -54,6 +56,121 @@ def load_yaml(path: Path) -> dict:
 def save_yaml(path: Path, data: dict):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+
+def active_cfg() -> dict:
+    if CFG_ACTIVE.exists():
+        return load_yaml(CFG_ACTIVE)
+    if CFG_STAGING.exists():
+        return load_yaml(CFG_STAGING)
+    return {}
+
+def list_ifaces() -> list[str]:
+    base = Path("/sys/class/net")
+    if not base.exists():
+        return []
+    out = []
+    for p in base.iterdir():
+        name = p.name
+        if name == "lo":
+            continue
+        out.append(name)
+    return sorted(out)
+
+def read_iface_stats(iface: str) -> dict:
+    base = Path("/sys/class/net") / iface / "statistics"
+    def r(name: str) -> int:
+        try:
+            return int((base / name).read_text(encoding="utf-8").strip())
+        except Exception:
+            return 0
+    return {
+        "rx_bytes": r("rx_bytes"),
+        "tx_bytes": r("tx_bytes"),
+        "rx_packets": r("rx_packets"),
+        "tx_packets": r("tx_packets"),
+        "rx_errors": r("rx_errors"),
+        "tx_errors": r("tx_errors"),
+        "rx_dropped": r("rx_dropped"),
+        "tx_dropped": r("tx_dropped"),
+    }
+
+class TrafficMonitor:
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._mode = "off"
+        self._interval = 5.0
+        self._last = {}  # iface -> (ts, rx_bytes, tx_bytes)
+        self._rates = {}  # iface -> dict
+        self._history = deque(maxlen=300)  # advanced mode: last ~5min at 1s
+
+    def _desired(self) -> tuple[str, float, list[str] | None]:
+        cfg = active_cfg()
+        mon = ((cfg.get("services") or {}).get("monitoring") or {})
+        mode = (mon.get("mode") or "off").strip().lower()
+        if mode not in ("off", "basic", "advanced"):
+            mode = "off"
+        interval = 5.0 if mode == "basic" else (1.0 if mode == "advanced" else 2.0)
+        ifaces = mon.get("interfaces")
+        if ifaces:
+            ifaces = [str(x).strip() for x in ifaces if str(x).strip()]
+        else:
+            ifaces = None
+        return mode, interval, ifaces
+
+    def snapshot(self) -> dict:
+        with self._lock:
+            return {
+                "mode": self._mode,
+                "interval_s": self._interval,
+                "interfaces": sorted(self._rates.keys()),
+                "rates": self._rates,
+                "history": list(self._history) if self._mode == "advanced" else [],
+            }
+
+    def run_forever(self):
+        while True:
+            mode, interval, ifaces = self._desired()
+            now = time.time()
+
+            if mode == "off":
+                with self._lock:
+                    self._mode = "off"
+                    self._interval = interval
+                    self._last = {}
+                    self._rates = {}
+                    self._history.clear()
+                time.sleep(interval)
+                continue
+
+            if iface_list := (ifaces or list_ifaces()):
+                for iface in iface_list:
+                    stats = read_iface_stats(iface)
+                    with self._lock:
+                        prev = self._last.get(iface)
+                        rx_mbps = tx_mbps = 0.0
+                        if prev:
+                            prev_ts, prev_rx, prev_tx = prev
+                            dt = max(now - prev_ts, 0.001)
+                            rx_mbps = (stats["rx_bytes"] - prev_rx) * 8.0 / dt / 1_000_000.0
+                            tx_mbps = (stats["tx_bytes"] - prev_tx) * 8.0 / dt / 1_000_000.0
+                        self._last[iface] = (now, stats["rx_bytes"], stats["tx_bytes"])
+                        self._rates[iface] = {
+                            **stats,
+                            "rx_mbps": round(rx_mbps, 3),
+                            "tx_mbps": round(tx_mbps, 3),
+                            "ts": int(now),
+                        }
+                        if mode == "advanced":
+                            self._history.append({"ts": int(now), "iface": iface, "rx_mbps": rx_mbps, "tx_mbps": tx_mbps})
+
+            with self._lock:
+                self._mode = mode
+                self._interval = interval
+
+            time.sleep(interval)
+
+TRAFFIC = TrafficMonitor()
+threading.Thread(target=TRAFFIC.run_forever, daemon=True).start()
 
 @app.middleware("http")
 async def metrics_mw(request: Request, call_next):
@@ -126,6 +243,17 @@ def firewall_get(request: Request):
     pf = (((cfg.get("firewall") or {}).get("port_forwards")) or [])
     return templates.TemplateResponse("firewall.html", {"request": request, "port_forwards": pf})
 
+@app.get("/traffic", response_class=HTMLResponse)
+def traffic_page(request: Request):
+    require_auth(request)
+    snap = TRAFFIC.snapshot()
+    return templates.TemplateResponse("traffic.html", {"request": request, "traffic": snap})
+
+@app.get("/api/traffic")
+def api_traffic(request: Request):
+    require_auth(request)
+    return TRAFFIC.snapshot()
+
 @app.post("/firewall/add")
 def firewall_add(
     request: Request,
@@ -186,5 +314,6 @@ def api_status(request: Request):
         "ip": sh(["bash","-lc","ip -br addr"]).stdout,
         "routes": sh(["bash","-lc","ip route"]).stdout,
         "pppoe": sh(["bash","-lc","ip -br link show pppoe0 2>/dev/null || true"]).stdout,
-        "uptime": sh(["bash","-lc","uptime -p"]).stdout.strip()
+        "uptime": sh(["bash","-lc","uptime -p"]).stdout.strip(),
+        "traffic": TRAFFIC.snapshot(),
     }

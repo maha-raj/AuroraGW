@@ -60,6 +60,7 @@ UPNP_OPT1=0
 DISCOVERY_RELAY=1
 SURICATA_ENABLE=0
 COCKPIT_ENABLE=0
+MONITOR_MODE="basic"
 
 WAN_MAC=$(pick_mac "WAN interface")
 LAN_MAC=$(pick_mac "LAN interface")
@@ -82,6 +83,10 @@ if [[ "$UI" == "whiptail" ]]; then
   whiptail --yesno "Enable discovery relay (mDNS+SSDP) LAN<->OPT1 for TVs/Cast devices?" 10 78 && DISCOVERY_RELAY=1 || DISCOVERY_RELAY=0
   whiptail --yesno "Enable Suricata IDS now? (Installed; default OFF for performance)" 10 78 && SURICATA_ENABLE=1 || SURICATA_ENABLE=0
   whiptail --yesno "Enable Cockpit system console on LAN? (https://<LAN-IP>:9090)" 10 78 && COCKPIT_ENABLE=1 || COCKPIT_ENABLE=0
+  MONITOR_MODE=$(whiptail --title "Traffic monitoring" --menu "Select monitoring mode" 15 70 3 \
+    "off" "Disabled" \
+    "basic" "Low-rate sampling (recommended)" \
+    "advanced" "Higher-rate sampling + history (troubleshooting)" 3>&1 1>&2 2>&3) || MONITOR_MODE="basic"
 else
   read -r -s -p "Admin password (user: admin) [default admin]: " x; echo; [[ -n "${x:-}" ]] && ADMIN_PASS="$x"
 fi
@@ -163,6 +168,7 @@ services:
   wireguard: { enabled: false }
   suricata: { installed: true, enabled: $( [[ $SURICATA_ENABLE -eq 1 ]] && echo true || echo false ), interfaces: [lan] }
   cockpit: { enabled: $( [[ $COCKPIT_ENABLE -eq 1 ]] && echo true || echo false ) }
+  monitoring: { mode: ${MONITOR_MODE} }
 
 firewall:
   port_forwards: []

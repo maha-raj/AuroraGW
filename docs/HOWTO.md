@@ -39,6 +39,7 @@ sudo /opt/auroragw/install/auroragw-install.sh --reconfigure
   - “Apply staging” runs a safe apply and (by default) requires confirmation within 120s
   - “Confirm” commits the pending apply
 - `/firewall`: add/remove **port forwards** (WAN → LAN/OPT1)
+- `/traffic`: interface rates/counters (optional; see section 11)
 
 ## 4) WAN mode: DHCP ↔ PPPoE
 
@@ -153,3 +154,19 @@ sudo auroragd restore /var/lib/auroragw/backups/<file>.tgz
 ```bash
 sudo ./scripts/smoke-tests.sh
 ```
+
+## 11) Traffic monitoring modes (off/basic/advanced)
+
+Traffic monitoring is for troubleshooting and visibility.
+
+Configure in staging YAML:
+```yaml
+services:
+  monitoring:
+    mode: off        # off | basic | advanced
+    # interfaces: [wan, lan, opt1]   # optional; defaults to all ifaces
+```
+
+- **off**: no sampling, `/traffic` is empty
+- **basic**: low-rate sampling (recommended)
+- **advanced**: higher-rate sampling + short history shown in `/traffic`

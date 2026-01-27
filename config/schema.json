@@ -258,6 +258,25 @@
             }
           }
         },
+        "monitoring": {
+          "type": "object",
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": [
+                "off",
+                "basic",
+                "advanced"
+              ]
+            },
+            "interfaces": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "wireguard": {
           "type": "object",
           "properties": {

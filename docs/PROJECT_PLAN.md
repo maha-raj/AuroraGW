@@ -198,6 +198,15 @@ segments:
 
 Note: This repo currently standardizes on **Kea + Unbound** to match the performance/security direction of AuroraGW.
 
+**DNS behavior (current implementation)**
+- Router upstream DNS (Unbound forwarders):
+  - `auto` (default): use DNS learned from WAN (DHCP or PPPoE)
+  - `manual`: pin upstream resolver IPs
+- DHCP DNS for clients (per segment):
+  - `router`: clients use AuroraGW (recommended default)
+  - `inherit_wan`: clients use WAN-learned DNS directly
+  - `manual`: clients use custom DNS servers
+
 ### 7.5 VPN
 - Roadmap: WireGuard (planned)
 
@@ -316,6 +325,9 @@ A single script (or suite) that verifies:
 | Dynamic segments (LAN/OPT1/extra NICs) | Yes | Yes |
 | DHCP (Kea) | Yes | Yes |
 | DNS resolver (Unbound) | Yes | Yes |
+| WAN-learned upstream DNS (auto) | Yes | Yes |
+| Manual upstream DNS override | Yes | Yes |
+| Per-segment DHCP DNS override | Yes | Yes |
 | dnsmasq fallback (DHCP/DNS) | No | Yes (Optional) |
 | WireGuard VPN | No | Yes |
 | OpenVPN VPN | No | Yes |

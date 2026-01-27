@@ -495,8 +495,9 @@ git log --oneline /etc/auroragw/config.yaml
 
 **DHCP & DNS**:
 - DHCP pool configuration per interface.
-- DNS zone editor (local overrides).
-- Conditional forwarding (e.g., `*.home.arpa` → 192.168.101.1).
+- Router upstream DNS forwarders: auto (WAN-learned) or manual override.
+- DHCP DNS per segment: router / inherit_wan / manual servers.
+- Roadmap: DNS local zones / conditional forwarding UI.
 
 **QoS Settings**:
 - QoS mode: Safe / Turbo / Off.

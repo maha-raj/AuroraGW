@@ -9,8 +9,8 @@ Included (implemented, not “piecemeal”):
 - Web UI (LAN-only by default): status, config editor, apply+confirm, backups, logs
 - nftables firewall + NAT + port forwards
 - WAN: DHCP bootstrap OR PPPoE (pppd)
-- DHCP: **Kea** (default) + dnsmasq option
-- DNS: **Unbound** (default) + dnsmasq option
+- DHCP: **Kea**
+- DNS: **Unbound**
 - QoS/SQM: CAKE + IFB ingress for PPPoE (optional) + DSCP hooks + auto-rate wizard
 - Home compatibility: UPnP (miniupnpd nftables backend) + mDNS/SSDP relay (Chromecast/FireTV/Samsung TV discovery across segments)
 - IDS: Suricata optional (installed, OFF by default unless enabled)
@@ -30,7 +30,7 @@ Included (implemented, not “piecemeal”):
 ### Install
 On a fresh Ubuntu Server:
 ```bash
-cd auroragw_full
+cd auroragw
 sudo ./install/auroragw-install.sh
 ```
 
@@ -58,3 +58,6 @@ If you don’t confirm, the rollback timer restores last-known-good configs.
 - Audit log: `/var/log/auroragw/audit.log`
 - Backups: `/var/lib/auroragw/backups/`
 
+## Docs
+- Product spec: `docs/AuroraGW-Master-Plan.md`
+- Implementation plan: `docs/PROJECT_PLAN.md`

@@ -1,4 +1,4 @@
 # Security defaults
 - WAN inbound denied by default (nftables input policy drop)
-- Mgmt allowed from LAN only (SSH 22, Status 8080)
-- OPT1 cannot initiate to LAN by default
+- Mgmt allowed from LAN only (SSH 22, Web UI 8443; optional status API 8080 if enabled)
+- Segment isolation: target default is OPT1 → LAN blocked unless explicitly allowed by presets/modules (starter builds may be more permissive for discovery during early development)

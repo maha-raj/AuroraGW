@@ -190,13 +190,13 @@ segments:
 ### 7.3 Firewall/NAT
 - nftables: stateful firewall + NAT
 - Default deny inbound from WAN
-- Segment-to-segment policies (OPT1 blocked to LAN by default)
+- Segment-to-segment policies (target default: OPT1 blocked to LAN; allow only what you explicitly enable via presets/modules)
 
 ### 7.4 DHCP/DNS
-- Install-now baseline: **dnsmasq** (DHCP + DNS)
-- Roadmap: Kea (DHCP) + Unbound (DNS resolver + local zones)
+- Baseline: **Kea** (DHCP) + **Unbound** (DNS resolver + local zones)
+- Optional fallback: **dnsmasq** (DHCP + DNS) for minimal footprint / troubleshooting (planned)
 
-Note: **dnsmasq remains the default** DHCP/DNS service for the simplest initial setup; Kea/Unbound are available as optional modules.
+Note: This repo currently standardizes on **Kea + Unbound** to match the performance/security direction of AuroraGW.
 
 ### 7.5 VPN
 - Install-now: WireGuard
@@ -315,9 +315,9 @@ A single script (or suite) that verifies:
 | Stateful firewall (nftables) | Yes | Yes |
 | nftables flowtable fastpath option | Yes | Yes |
 | Dynamic segments (LAN/OPT1/extra NICs) | Yes | Yes |
-| DHCP/DNS baseline (dnsmasq) | Yes | No |
-| DHCP upgrade (Kea) | Yes (Optional module; default OFF) | Yes |
-| DNS resolver upgrade (Unbound) | Yes (Optional module; default OFF) | Yes |
+| DHCP (Kea) | Yes | Yes |
+| DNS resolver (Unbound) | Yes | Yes |
+| dnsmasq fallback (DHCP/DNS) | No | Yes (Optional) |
 | WireGuard VPN | Yes | Yes |
 | OpenVPN VPN | No | Yes |
 | QoS: CAKE per segment | Yes | Yes |

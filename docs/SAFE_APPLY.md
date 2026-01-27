@@ -6,12 +6,14 @@ On apply, AuroraGW:
 3) Renders & applies:
    - netplan
    - nftables
-   - dnsmasq
+   - DHCP (Kea)
+   - DNS (Unbound)
    - optional PPPoE (pppd peers + unit)
    - optional CAKE + IFB shaping
    - optional Suricata units
+   - optional UPnP + discovery relay units
 4) Health checks:
    - LAN IP still present
-   - nftables + dnsmasq are active
+   - nftables + AuroraGW web UI are active
    - if WAN mode is PPPoE, `pppoe0` exists
 5) If checks fail → rollback restored + services restarted.

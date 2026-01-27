@@ -15,12 +15,13 @@ if [[ $RECONFIGURE -eq 0 ]]; then
     nftables iproute2 iputils-ping tcpdump ethtool \
     ppp rp-pppoe \
     python3 python3-venv python3-pip python3-yaml python3-jsonschema \
-    isc-kea unbound \
-    miniupnpd-nftables \
-    cockpit \
-    python3-netifaces \
-    speedtest-cli \
-    || true
+  isc-kea unbound \
+  miniupnpd-nftables \
+  cockpit \
+  unzip \
+  python3-netifaces \
+  speedtest-cli \
+  || true
   apt-get install -y --no-install-recommends suricata openssl whiptail rsync || true
 else
   echo "== Reconfigure mode: skipping apt install =="
@@ -169,12 +170,14 @@ services:
   suricata: { installed: true, enabled: $( [[ $SURICATA_ENABLE -eq 1 ]] && echo true || echo false ), interfaces: [lan] }
   cockpit: { enabled: $( [[ $COCKPIT_ENABLE -eq 1 ]] && echo true || echo false ) }
   monitoring: { mode: ${MONITOR_MODE} }
+  evebox: { enabled: false }
 
 firewall:
   port_forwards: []
 EOF
 
 bash /opt/auroragw/discovery/fetch_multicast_relay.sh || true
+bash /opt/auroragw/scripts/fetch-evebox.sh || true
 ln -sf /opt/auroragw/auroragd/auroragd.py /usr/local/sbin/auroragd
 
 cp -f /opt/auroragw/systemd/* /etc/systemd/system/ || true

@@ -1,0 +1,33 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>EveBox</title>
+  </head>
+  <body>
+    <h1>EveBox (Suricata EVE viewer)</h1>
+    <p><a href="/">Home</a></p>
+
+    <p>
+      EveBox runs on-box and is LAN-only. It reads <code>/var/log/suricata/eve.json</code>.
+      Enable Suricata first, then enable EveBox.
+    </p>
+
+    <h2>Configuration</h2>
+    <form method="post" action="/evebox">
+      <label><input type="checkbox" name="enabled" value="1" {% if enabled %}checked{% endif %}/> enabled</label>
+      <p><button type="submit">Save to staging</button></p>
+    </form>
+
+    <h2>Status</h2>
+    <pre>{{ status }}</pre>
+
+    <p>
+      When enabled, open:
+      <a href="http://{{ host }}:5636/" target="_blank">http://{{ host }}:5636/</a>
+    </p>
+
+    <h2>Recent Suricata EVE events (tail)</h2>
+    <pre style="max-height: 360px; overflow: auto;">{{ eve_tail }}</pre>
+  </body>
+</html>

@@ -100,6 +100,7 @@ def render_nft(cfg, ifs):
     nat_oif = "pppoe0" if cfg["wan"]["mode"] == "pppoe" else wan_if
     discovery_enabled = bool((cfg.get("services", {}) or {}).get("discovery_relay", {}).get("enabled", False))
     cockpit_enabled = bool((cfg.get("services", {}) or {}).get("cockpit", {}).get("enabled", False))
+    evebox_enabled = bool((cfg.get("services", {}) or {}).get("evebox", {}).get("enabled", False))
 
     dscp_rules = (cfg.get("services", {}).get("qos", {}) or {}).get("dscp_rules", []) or []
     dscp_lines=[]
@@ -135,7 +136,7 @@ table inet filter {{
     ct state established,related accept
 
     # mgmt: LAN only (ssh + web)
-    iifname "{lan_if}" tcp dport {{22,8443{',9090' if cockpit_enabled else ''}}} accept
+    iifname "{lan_if}" tcp dport {{22,8443{',9090' if cockpit_enabled else ''}{',5636' if evebox_enabled else ''}}} accept
 
     # DHCP/DNS to router (LAN/OPT1)
     iifname "{lan_if}" udp dport {{53,67,547,5353,1900}} accept
@@ -340,6 +341,15 @@ def apply_cockpit(cfg):
     else:
         sh(["bash","-lc","systemctl disable --now cockpit.socket cockpit 2>/dev/null || true"], check=False)
 
+def apply_evebox(cfg):
+    enabled = bool((cfg.get("services", {}) or {}).get("evebox", {}).get("enabled", False))
+    if enabled:
+        sh(["bash","-lc","/opt/auroragw/scripts/fetch-evebox.sh || true"], check=False)
+        sh(["bash","-lc","systemctl enable --now auroragw-evebox.service 2>/dev/null || true"], check=False)
+        sh(["bash","-lc","systemctl restart auroragw-evebox.service 2>/dev/null || true"], check=False)
+    else:
+        sh(["bash","-lc","systemctl disable --now auroragw-evebox.service 2>/dev/null || true"], check=False)
+
 def apply_qos(cfg, ifs):
     qos = cfg.get("services", {}).get("qos", {}) or {}
     if not qos.get("enabled", False):
@@ -531,6 +541,8 @@ WantedBy=multi-user.target
         apply_suricata(cfg, ifs)
 
         apply_cockpit(cfg)
+
+        apply_evebox(cfg)
 
         sh(["systemctl","enable","--now","auroragw-web"], check=False)
         sh(["systemctl","restart","auroragw-web"], check=False)

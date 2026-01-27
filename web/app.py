@@ -340,6 +340,34 @@ def suricata_post(
     audit(f"suricata updated enabled={cfg['services']['suricata']['enabled']} interfaces={cfg['services']['suricata']['interfaces']}")
     return RedirectResponse(url="/suricata", status_code=303)
 
+@app.get("/evebox", response_class=HTMLResponse)
+def evebox_get(request: Request):
+    require_auth(request)
+    cfg = load_yaml(CFG_STAGING if CFG_STAGING.exists() else CFG_ACTIVE)
+    e = ((cfg.get("services") or {}).get("evebox") or {})
+    enabled = bool(e.get("enabled", False))
+
+    status = sh(["bash", "-lc", "systemctl --no-pager --plain status auroragw-evebox.service 2>/dev/null || true"]).stdout
+    eve_tail = sh(["bash", "-lc", "tail -n 120 /var/log/suricata/eve.json 2>/dev/null || true"]).stdout
+
+    # Best-effort: link back to this router's host (from Host header).
+    host = (request.headers.get("host", "192.168.101.1").split(":", 1)[0]).strip() or "192.168.101.1"
+    return templates.TemplateResponse(
+        "evebox.html",
+        {"request": request, "enabled": enabled, "status": status, "eve_tail": eve_tail, "host": host},
+    )
+
+@app.post("/evebox")
+def evebox_post(request: Request, enabled: str = Form("0")):
+    require_auth(request)
+    cfg = load_yaml(CFG_STAGING if CFG_STAGING.exists() else CFG_ACTIVE)
+    cfg.setdefault("services", {})
+    cfg["services"].setdefault("evebox", {})
+    cfg["services"]["evebox"]["enabled"] = (enabled == "1")
+    save_yaml(CFG_STAGING, cfg)
+    audit(f"evebox updated enabled={cfg['services']['evebox']['enabled']}")
+    return RedirectResponse(url="/evebox", status_code=303)
+
 @app.post("/backup")
 def backup(request: Request):
     require_auth(request)

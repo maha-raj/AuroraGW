@@ -1,0 +1,15 @@
+[Unit]
+Description=AuroraGW EveBox (Suricata EVE UI)
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/var/log/suricata/eve.json
+
+[Service]
+Type=simple
+ExecStartPre=/opt/auroragw/scripts/fetch-evebox.sh
+ExecStart=/opt/auroragw/bin/evebox server --no-auth --no-tls --sqlite /var/log/suricata/eve.json --host 0.0.0.0 --port 5636
+Restart=on-failure
+User=root
+
+[Install]
+WantedBy=multi-user.target

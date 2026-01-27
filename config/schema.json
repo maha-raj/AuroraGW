@@ -309,6 +309,14 @@
               "type": "boolean"
             }
           }
+        },
+        "evebox": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          }
         }
       }
     },

@@ -40,6 +40,7 @@ sudo /opt/auroragw/install/auroragw-install.sh --reconfigure
   - “Confirm” commits the pending apply
 - `/firewall`: add/remove **port forwards** (WAN → LAN/OPT1)
 - `/suricata`: enable/disable IDS + select interfaces (then Apply/Confirm)
+- `/evebox`: enable/disable EveBox (then Apply/Confirm) and open EveBox UI on port 5636
 - `/traffic`: interface rates/counters (optional; see section 11)
 
 ## 4) WAN mode: DHCP ↔ PPPoE

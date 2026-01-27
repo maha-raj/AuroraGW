@@ -46,6 +46,7 @@ services:
   wireguard: { enabled: false }
   suricata: { installed: true, enabled: false, interfaces: [lan] }
   cockpit: { enabled: false }
+  evebox: { enabled: false }
 
 firewall:
   port_forwards: []

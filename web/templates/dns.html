@@ -1,39 +1,41 @@
-<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <title>DNS</title>
-  </head>
-  <body>
-    <h1>DNS</h1>
-    <p><a href="/">Home</a></p>
+{% extends "base.html" %}
 
-    <p>Edits staging config. Click Apply on the Status page to activate.</p>
+{% block title %}DNS · AuroraGW{% endblock %}
 
-    <form method="post" action="/dns">
-      <h2>Router upstream DNS (Unbound forwarders)</h2>
-      <p>
-        Default is <b>auto</b> (use DNS learned from WAN via DHCP or PPPoE).
-        Manual overrides let you pin upstream resolvers.
+{% block content %}
+  <div class="card">
+    <h1 class="h1">DNS</h1>
+    <p class="muted">Edits staging config. Apply + Confirm from Status to activate changes.</p>
+  </div>
+
+  <form method="post" action="/dns">
+    <div class="card">
+      <h2 class="h2">Router upstream DNS (Unbound forwarders)</h2>
+      <p class="muted">Default is <b>auto</b> (WAN-learned via DHCP or PPPoE). Manual pins resolver IPs.</p>
+      <div class="row">
+        <div class="col">
+          <label>mode</label>
+          <select name="upstream_mode">
+            <option value="auto" {% if up_mode == "auto" %}selected{% endif %}>auto (WAN learned)</option>
+            <option value="manual" {% if up_mode == "manual" %}selected{% endif %}>manual</option>
+          </select>
+        </div>
+        <div class="col">
+          <label>manual servers (comma/space separated)</label>
+          <input type="text" name="upstream_servers" value="{{ up_servers }}" placeholder="1.1.1.1, 9.9.9.9" />
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 class="h2">DHCP DNS for clients (per segment)</h2>
+      <p class="muted">
+        <b>router</b> = clients use AuroraGW/Unbound.<br/>
+        <b>inherit_wan</b> = clients use WAN-learned DNS directly.<br/>
+        <b>manual</b> = clients use custom resolvers.
       </p>
-      <label>mode
-        <select name="upstream_mode">
-          <option value="auto" {% if up_mode == "auto" %}selected{% endif %}>auto (WAN learned)</option>
-          <option value="manual" {% if up_mode == "manual" %}selected{% endif %}>manual</option>
-        </select>
-      </label>
-      <label>manual servers (comma/space separated)
-        <input type="text" name="upstream_servers" value="{{ up_servers }}" size="60" placeholder="1.1.1.1, 9.9.9.9" />
-      </label>
 
-      <h2>DHCP DNS for LAN/OPT1 clients</h2>
-      <p>
-        <b>router</b> = hand out the segment gateway (AuroraGW/Unbound).<br/>
-        <b>inherit_wan</b> = hand out the WAN-learned DNS servers to clients.<br/>
-        <b>manual</b> = hand out your custom DNS servers to clients.
-      </p>
-
-      <table border="1" cellpadding="6" cellspacing="0">
+      <table>
         <tr>
           <th>segment</th>
           <th>address</th>
@@ -45,9 +47,9 @@
         <tr>
           <td>
             <input type="hidden" name="seg_id" value="{{ s.id }}" />
-            <b>{{ s.id }}</b> {{ s.label }}
+            <b>{{ s.id }}</b> <span class="muted">{{ s.label }}</span>
           </td>
-          <td>{{ s.address }}</td>
+          <td><code>{{ s.address }}</code></td>
           <td>{{ "on" if s.dhcp_enabled else "off" }}</td>
           <td>
             <select name="seg_dns_mode">
@@ -57,13 +59,15 @@
             </select>
           </td>
           <td>
-            <input type="text" name="seg_dns_servers" value="{{ s.dns_servers }}" size="50" placeholder="1.1.1.1, 9.9.9.9" />
+            <input type="text" name="seg_dns_servers" value="{{ s.dns_servers }}" placeholder="1.1.1.1, 9.9.9.9" />
           </td>
         </tr>
         {% endfor %}
       </table>
 
-      <p><button type="submit">Save DNS settings to staging</button></p>
-    </form>
-  </body>
-</html>
+      <p style="margin-top: 12px;">
+        <button class="primary" type="submit">Save DNS settings to staging</button>
+      </p>
+    </div>
+  </form>
+{% endblock %}

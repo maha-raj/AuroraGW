@@ -1,0 +1,17 @@
+[Unit]
+Description=AuroraGW Observability (Prometheus + Grafana via Docker)
+After=network-online.target docker.service
+Wants=network-online.target docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/auroragw/observability/local
+EnvironmentFile=-/etc/auroragw/observability/observability.env
+ExecStartPre=/bin/mkdir -p /var/lib/auroragw/observability/prometheus /var/lib/auroragw/observability/grafana /etc/auroragw/observability
+ExecStart=/usr/bin/docker compose up -d
+ExecStop=/usr/bin/docker compose down
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target

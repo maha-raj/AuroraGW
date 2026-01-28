@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block title %}Error · AuroraGW{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <h1 class="h1">Something went wrong</h1>
+    <p class="muted">{{ message }}</p>
+
+    <div class="kv">
+      <div class="kv__row"><div class="kv__k">Error ID</div><div class="kv__v"><code>{{ error_id }}</code></div></div>
+      {% if request_id %}
+      <div class="kv__row"><div class="kv__k">Request ID</div><div class="kv__v"><code>{{ request_id }}</code></div></div>
+      {% endif %}
+      <div class="kv__row"><div class="kv__k">Time</div><div class="kv__v"><code>{{ ts }}</code></div></div>
+    </div>
+
+    <h2 class="h2">What to send for support</h2>
+    <ul>
+      <li>the Error ID above</li>
+      <li>the page you were on: <code>{{ active_path }}</code></li>
+      <li>optional: <code>journalctl -u auroragw-web -n 200 --no-pager</code></li>
+    </ul>
+  </div>
+{% endblock %}

@@ -1,15 +1,62 @@
-<!doctype html><html><head><meta charset="utf-8"><title>Status</title></head>
-<body>
-<h1>Status</h1><p><a href="/">Home</a></p>
-<h2>Interfaces</h2><pre>{{ ip_addr }}</pre>
-<h2>Routes</h2><pre>{{ routes }}</pre>
-<h2>PPPoE</h2><pre>{{ ppp }}</pre>
-<h2>nftables (top)</h2><pre>{{ nft }}</pre>
-<h2>Apply / Confirm</h2>
-<form method="post" action="/apply">
-  <label><input type="checkbox" name="require_confirm" value="1" checked> require confirm</label>
-  <label>timeout <input type="number" name="timeout" value="120" min="30" max="600"></label>
-  <button type="submit">Apply staging</button>
-</form>
-<form method="post" action="/confirm"><button type="submit">Confirm</button></form>
-</body></html>
+{% extends "base.html" %}
+
+{% block title %}Status · AuroraGW{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <h1 class="h1">Status</h1>
+    <p class="muted">Apply changes safely. If “require confirm” is enabled, confirm within the timeout or rollback will run.</p>
+
+    {% if pending %}
+      <div class="alert alert--warn">
+        Pending apply requires confirmation.
+        {% if pending.seconds_left is not none %}
+          Time left: <code>{{ pending.seconds_left }}</code>s.
+        {% endif %}
+      </div>
+    {% endif %}
+
+    <div class="row">
+      <form method="post" action="/apply">
+        <div class="row">
+          <div class="col">
+            <label><input type="checkbox" name="require_confirm" value="1" checked /> require confirm</label>
+          </div>
+          <div class="col">
+            <label>timeout (seconds)
+              <input type="number" name="timeout" value="120" min="30" max="600" />
+            </label>
+          </div>
+          <div class="col">
+            <button class="primary" type="submit">Apply staging</button>
+          </div>
+        </div>
+      </form>
+      <form method="post" action="/confirm">
+        <button type="submit">Confirm</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="grid cols-2">
+    <div class="card">
+      <h2 class="h2">Interfaces</h2>
+      <pre>{{ ip_addr }}</pre>
+    </div>
+    <div class="card">
+      <h2 class="h2">Routes</h2>
+      <pre>{{ routes }}</pre>
+    </div>
+  </div>
+
+  <div class="grid cols-2">
+    <div class="card">
+      <h2 class="h2">PPPoE</h2>
+      <pre>{{ ppp }}</pre>
+    </div>
+    <div class="card">
+      <h2 class="h2">nftables (top)</h2>
+      <pre>{{ nft }}</pre>
+    </div>
+  </div>
+{% endblock %}

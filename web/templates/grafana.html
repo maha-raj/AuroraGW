@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+
+{% block title %}Grafana · AuroraGW{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <h1 class="h1">Grafana</h1>
+    <p class="muted">
+      Optional observability module. Use <b>local</b> to run Prometheus+Grafana on AuroraGW (LAN-only), or <b>remote</b> to link to a LAN VM/NAS Grafana.
+      Changes edit staging config; Apply + Confirm from Status to activate.
+    </p>
+  </div>
+
+  <div class="grid cols-2">
+    <div class="card">
+      <h2 class="h2">Configuration</h2>
+      <form method="post" action="/grafana">
+        <label><input type="checkbox" name="enabled" value="1" {% if enabled %}checked{% endif %}/> enabled</label>
+
+        <label>mode</label>
+        <select name="mode">
+          <option value="local" {% if mode == "local" %}selected{% endif %}>local (run on AuroraGW)</option>
+          <option value="remote" {% if mode == "remote" %}selected{% endif %}>remote (LAN VM)</option>
+        </select>
+
+        <label>remote URL (when mode=remote)</label>
+        <input type="text" name="remote_url" value="{{ remote_url }}" placeholder="http://grafana.lan:3000/" />
+
+        <button class="primary" type="submit">Save to staging</button>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2 class="h2">Open UI</h2>
+      {% if enabled and mode == "local" %}
+        <p class="muted">
+          Local Grafana (LAN-only):
+          <a class="btn" href="http://{{ host }}:3000/" target="_blank">http://{{ host }}:3000/</a>
+        </p>
+        <p class="muted">
+          Local Prometheus (LAN-only):
+          <a class="btn" href="http://{{ host }}:9095/" target="_blank">http://{{ host }}:9095/</a>
+        </p>
+        <p class="muted">
+          Grafana credentials are stored in <code>/etc/auroragw/secrets.yaml</code> as <code>grafana_admin_password</code>.
+        </p>
+      {% elif enabled and mode == "remote" %}
+        {% if remote_url %}
+          <p class="muted">
+            Remote Grafana:
+            <a class="btn" href="{{ remote_url }}" target="_blank">{{ remote_url }}</a>
+          </p>
+        {% else %}
+          <p class="muted">Set a remote URL to show a quick link.</p>
+        {% endif %}
+      {% else %}
+        <p class="muted">Enable the module to show links.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="grid cols-2">
+    <div class="card">
+      <h2 class="h2">Service status (local)</h2>
+      <pre>{{ status }}</pre>
+    </div>
+    <div class="card">
+      <h2 class="h2">Containers (local)</h2>
+      <pre>{{ ps }}</pre>
+    </div>
+  </div>
+{% endblock %}

@@ -1,10 +1,30 @@
-<!doctype html><html><head><meta charset="utf-8"><title>Config</title></head>
-<body>
-<h1>Config</h1><p><a href="/">Home</a></p>
-<h2>Active</h2><pre style="background:#f3f3f3;padding:8px">{{ active }}</pre>
-<h2>Staging (edit)</h2>
-<form method="post" action="/config">
-<textarea name="staging" style="width:100%;height:420px">{{ staging }}</textarea>
-<button type="submit">Save staging</button>
-</form>
-</body></html>
+{% extends "base.html" %}
+
+{% block title %}Config · AuroraGW{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <h1 class="h1">Config</h1>
+    <p class="muted">Edit staging config, then Apply + Confirm from the Status page.</p>
+  </div>
+
+  <div class="grid cols-2">
+    <div class="card">
+      <h2 class="h2">Active</h2>
+      <pre>{{ active }}</pre>
+    </div>
+    <div class="card">
+      <h2 class="h2">Staging</h2>
+      <form method="post" action="/config">
+        <label>staging YAML</label>
+        <textarea class="mono" name="staging">{{ staging }}</textarea>
+        <div class="row">
+          <div class="col">
+            <button class="primary" type="submit">Save staging</button>
+          </div>
+          <div class="col muted">Tip: use the dedicated pages (DNS/Firewall/Suricata/EveBox) for common edits.</div>
+        </div>
+      </form>
+    </div>
+  </div>
+{% endblock %}

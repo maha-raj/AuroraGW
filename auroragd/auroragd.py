@@ -4,6 +4,7 @@ from pathlib import Path
 import yaml
 import jsonschema
 import ipaddress
+import secrets
 
 BASE = Path("/opt/auroragw")
 SCHEMA_PATH = BASE / "config/schema.json"
@@ -102,6 +103,8 @@ def render_nft(cfg, ifs):
     discovery_enabled = bool((cfg.get("services", {}) or {}).get("discovery_relay", {}).get("enabled", False))
     cockpit_enabled = bool((cfg.get("services", {}) or {}).get("cockpit", {}).get("enabled", False))
     evebox_enabled = bool((cfg.get("services", {}) or {}).get("evebox", {}).get("enabled", False))
+    grafana = (cfg.get("services", {}) or {}).get("grafana", {}) or {}
+    grafana_local = bool(grafana.get("enabled", False)) and (str(grafana.get("mode", "remote")).strip().lower() == "local")
 
     dscp_rules = (cfg.get("services", {}).get("qos", {}) or {}).get("dscp_rules", []) or []
     dscp_lines=[]
@@ -137,7 +140,7 @@ table inet filter {{
     ct state established,related accept
 
     # mgmt: LAN only (ssh + web)
-    iifname "{lan_if}" tcp dport {{22,8443{',9090' if cockpit_enabled else ''}{',5636' if evebox_enabled else ''}}} accept
+    iifname "{lan_if}" tcp dport {{22,8443{',9090' if cockpit_enabled else ''}{',5636' if evebox_enabled else ''}{',3000,9095' if grafana_local else ''}}} accept
 
     # DHCP/DNS to router (LAN/OPT1)
     iifname "{lan_if}" udp dport {{53,67,547,5353,1900}} accept
@@ -423,6 +426,57 @@ def apply_evebox(cfg):
     else:
         sh(["bash","-lc","systemctl disable --now auroragw-evebox.service 2>/dev/null || true"], check=False)
 
+def apply_grafana(cfg):
+    g = (cfg.get("services", {}) or {}).get("grafana", {}) or {}
+    enabled = bool(g.get("enabled", False))
+    mode = str(g.get("mode", "remote") or "remote").strip().lower()
+    local = enabled and mode == "local"
+
+    if not local:
+        sh(["bash","-lc","systemctl disable --now auroragw-observability.service 2>/dev/null || true"], check=False)
+        return
+
+    if sh(["bash","-lc","command -v docker >/dev/null 2>&1"], check=False).returncode != 0:
+        log("grafana local enabled but docker not installed (skipping start)")
+        return
+
+    sh(["bash","-lc","systemctl enable --now docker 2>/dev/null || true"], check=False)
+
+    obs_dir = CFG_DIR / "observability"
+    obs_dir.mkdir(parents=True, exist_ok=True)
+
+    # Ensure env file for docker-compose substitution.
+    secrets_path = CFG_DIR / "secrets.yaml"
+    s = {}
+    if secrets_path.exists():
+        try:
+            s = yaml.safe_load(secrets_path.read_text(encoding="utf-8")) or {}
+        except Exception:
+            s = {}
+    if not s.get("grafana_admin_password"):
+        s["grafana_admin_password"] = secrets.token_urlsafe(20)
+        secrets_path.parent.mkdir(parents=True, exist_ok=True)
+        secrets_path.write_text(yaml.safe_dump(s, sort_keys=False), encoding="utf-8")
+        try:
+            os.chmod(secrets_path, 0o600)
+        except Exception:
+            pass
+
+    env_path = obs_dir / "observability.env"
+    env_path.write_text(f'GRAFANA_ADMIN_PASSWORD={s.get("grafana_admin_password")}\n', encoding="utf-8")
+    try:
+        os.chmod(env_path, 0o600)
+    except Exception:
+        pass
+
+    # Prometheus scrape config (local docker -> scrape host web via host-gateway).
+    tpl = BASE / "observability/local/prometheus.yml"
+    if tpl.exists():
+        (obs_dir / "prometheus.yml").write_text(tpl.read_text(encoding="utf-8"), encoding="utf-8")
+
+    sh(["bash","-lc","systemctl enable --now auroragw-observability.service 2>/dev/null || true"], check=False)
+    sh(["bash","-lc","systemctl restart auroragw-observability.service 2>/dev/null || true"], check=False)
+
 def apply_qos(cfg, ifs):
     qos = cfg.get("services", {}).get("qos", {}) or {}
     if not qos.get("enabled", False):
@@ -619,6 +673,8 @@ WantedBy=multi-user.target
         apply_cockpit(cfg)
 
         apply_evebox(cfg)
+
+        apply_grafana(cfg)
 
         sh(["systemctl","enable","--now","auroragw-web"], check=False)
         sh(["systemctl","restart","auroragw-web"], check=False)

@@ -1,24 +1,62 @@
-<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <title>Traffic</title>
-  </head>
-  <body>
-    <h1>Traffic</h1>
-    <p><a href="/">Home</a></p>
+{% extends "base.html" %}
 
-    <p>
-      Mode: <b>{{ traffic.get("mode") }}</b>
-      (sample interval {{ traffic.get("interval_s") }}s)
-    </p>
-    <p>
-      Configure via staging YAML under:
-      <code>services.monitoring.mode</code> = <code>off</code> | <code>basic</code> | <code>advanced</code>
-    </p>
+{% block title %}Traffic · AuroraGW{% endblock %}
 
-    <h2>Interfaces</h2>
-    <table border="1" cellpadding="6" cellspacing="0">
+{% block content %}
+  <div class="card">
+    <h1 class="h1">Traffic</h1>
+    <p class="muted">
+      Effective mode: <b>{{ traffic.get("mode") }}</b> (interval <code>{{ traffic.get("interval_s") }}</code>s, source <code>{{ traffic.get("source") }}</code>).
+      Sampling runs in the background (no need to keep this page open). Data is kept in memory and resets on service restart (and when switching to <code>off</code>).
+    </p>
+  </div>
+
+  <div class="card">
+    <h2 class="h2">Monitoring settings (runtime)</h2>
+    <p class="muted">
+      These settings take effect immediately (no Apply required) and are stored in <code>/etc/auroragw/monitoring.yaml</code>.
+      Reset to fall back to <code>services.monitoring</code> from the main config.
+    </p>
+    <div class="grid cols-2">
+      <div class="card" style="box-shadow:none;">
+        <form method="post" action="/traffic/settings">
+          <label>mode</label>
+          <select name="mode">
+            <option value="off" {% if mode == "off" %}selected{% endif %}>off</option>
+            <option value="basic" {% if mode == "basic" %}selected{% endif %}>basic</option>
+            <option value="advanced" {% if mode == "advanced" %}selected{% endif %}>advanced</option>
+          </select>
+
+          <div class="muted" style="margin-top: 10px;">Interfaces (leave empty = all)</div>
+          <div class="row" style="margin-top: 8px;">
+            {% for i in ifaces %}
+              <label style="display:flex; gap:8px; align-items:center; margin: 0 12px 8px 0;">
+                <input type="checkbox" name="interfaces" value="{{ i }}" {% if i in selected_ifaces %}checked{% endif %}/>
+                <span><code>{{ i }}</code></span>
+              </label>
+            {% endfor %}
+          </div>
+
+          <button class="primary" type="submit">Save monitoring settings</button>
+        </form>
+      </div>
+      <div class="card" style="box-shadow:none;">
+        <h3 class="h2">Reset</h3>
+        {% if override_enabled %}
+          <p class="muted">Override is currently enabled.</p>
+          <form method="post" action="/traffic/reset">
+            <button class="danger" type="submit">Reset to config defaults</button>
+          </form>
+        {% else %}
+          <p class="muted">No override is set; using main config defaults.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 class="h2">Interfaces</h2>
+    <table>
       <tr>
         <th>iface</th>
         <th>rx Mbps</th>
@@ -32,7 +70,7 @@
       </tr>
       {% for iface, v in (traffic.get("rates") or {}).items() %}
       <tr>
-        <td>{{ iface }}</td>
+        <td><code>{{ iface }}</code></td>
         <td>{{ v.get("rx_mbps","") }}</td>
         <td>{{ v.get("tx_mbps","") }}</td>
         <td>{{ v.get("rx_bytes","") }}</td>
@@ -44,10 +82,13 @@
       </tr>
       {% endfor %}
     </table>
+  </div>
 
-    {% if traffic.get("mode") == "advanced" %}
-    <h2>Advanced history (last {{ (traffic.get("history") or [])|length }} samples)</h2>
-    <pre style="max-height: 360px; overflow: auto;">{{ (traffic.get("history") or []) | tojson(indent=2) }}</pre>
-    {% endif %}
-  </body>
-</html>
+  {% if traffic.get("mode") == "advanced" %}
+  <div class="card">
+    <h2 class="h2">Advanced history</h2>
+    <p class="muted">History stores a short rolling window for troubleshooting.</p>
+    <pre>{{ (traffic.get("history") or []) | tojson(indent=2) }}</pre>
+  </div>
+  {% endif %}
+{% endblock %}

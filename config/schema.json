@@ -354,6 +354,24 @@
               "type": "boolean"
             }
           }
+        },
+        "grafana": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "mode": {
+              "type": "string",
+              "enum": [
+                "local",
+                "remote"
+              ]
+            },
+            "remote_url": {
+              "type": "string"
+            }
+          }
         }
       }
     },

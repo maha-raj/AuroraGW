@@ -1,6 +1,25 @@
-<!doctype html><html><head><meta charset="utf-8"><title>Logs</title></head>
-<body>
-<h1>Logs</h1><p><a href="/">Home</a></p>
-<h2>AuroraGW audit log</h2><pre style="background:#f3f3f3;padding:8px">{{ audit }}</pre>
-<h2>systemd journal (last 200)</h2><pre style="background:#f3f3f3;padding:8px">{{ journal }}</pre>
-</body></html>
+{% extends "base.html" %}
+
+{% block title %}Logs · AuroraGW{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <h1 class="h1">Logs</h1>
+    <p class="muted">Audit + recent systemd journal entries.</p>
+  </div>
+
+  <div class="grid cols-2">
+    <div class="card">
+      <h2 class="h2">AuroraGW audit log</h2>
+      <pre>{{ audit }}</pre>
+    </div>
+    <div class="card">
+      <h2 class="h2">Web UI errors</h2>
+      <pre>{{ web_errors }}</pre>
+    </div>
+    <div class="card">
+      <h2 class="h2">systemd journal (last 200)</h2>
+      <pre>{{ journal }}</pre>
+    </div>
+  </div>
+{% endblock %}

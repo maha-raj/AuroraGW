@@ -1,17 +1,16 @@
-<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <title>Firewall</title>
-  </head>
-  <body>
-    <h1>Firewall</h1>
-    <p><a href="/">Home</a></p>
+{% extends "base.html" %}
 
-    <h2>Port forwards (WAN → LAN/OPT1)</h2>
-    <p>Edits staging config. Click Apply on the Status page to activate.</p>
+{% block title %}Firewall · AuroraGW{% endblock %}
 
-    <table border="1" cellpadding="6" cellspacing="0">
+{% block content %}
+  <div class="card">
+    <h1 class="h1">Firewall</h1>
+    <p class="muted">Port forwards (DNAT). Edits staging config; Apply + Confirm from Status.</p>
+  </div>
+
+  <div class="card">
+    <h2 class="h2">Port forwards</h2>
+    <table>
       <tr>
         <th>#</th>
         <th>Proto</th>
@@ -22,33 +21,47 @@
       </tr>
       {% for r in port_forwards %}
       <tr>
-        <td>{{ loop.index0 }}</td>
+        <td><code>{{ loop.index0 }}</code></td>
         <td>{{ r.get("proto","") }}</td>
         <td>{{ r.get("wan_port","") }}</td>
-        <td>{{ r.get("lan_ip","") }}</td>
+        <td><code>{{ r.get("lan_ip","") }}</code></td>
         <td>{{ r.get("lan_port","") }}</td>
         <td>
           <form method="post" action="/firewall/delete" style="margin: 0">
             <input type="hidden" name="idx" value="{{ loop.index0 }}" />
-            <button type="submit">Delete</button>
+            <button class="danger" type="submit">Delete</button>
           </form>
         </td>
       </tr>
       {% endfor %}
     </table>
+  </div>
 
-    <h3>Add port forward</h3>
+  <div class="card">
+    <h2 class="h2">Add port forward</h2>
     <form method="post" action="/firewall/add">
-      <label>proto
-        <select name="proto">
-          <option value="tcp">tcp</option>
-          <option value="udp">udp</option>
-        </select>
-      </label>
-      <label>WAN port <input type="number" name="wan_port" min="1" max="65535" required /></label>
-      <label>LAN IP <input type="text" name="lan_ip" placeholder="192.168.101.10" required /></label>
-      <label>LAN port <input type="number" name="lan_port" min="1" max="65535" required /></label>
-      <button type="submit">Add</button>
+      <div class="row">
+        <div class="col">
+          <label>proto</label>
+          <select name="proto">
+            <option value="tcp">tcp</option>
+            <option value="udp">udp</option>
+          </select>
+        </div>
+        <div class="col">
+          <label>WAN port</label>
+          <input type="number" name="wan_port" min="1" max="65535" required />
+        </div>
+        <div class="col">
+          <label>LAN IP</label>
+          <input type="text" name="lan_ip" placeholder="192.168.101.10" required />
+        </div>
+        <div class="col">
+          <label>LAN port</label>
+          <input type="number" name="lan_port" min="1" max="65535" required />
+        </div>
+      </div>
+      <button class="primary" type="submit">Add</button>
     </form>
-  </body>
-</html>
+  </div>
+{% endblock %}

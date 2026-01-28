@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import base64, hmac, time, subprocess
+import base64, hmac, time, subprocess, json, uuid, traceback, logging
 import threading
 from collections import deque
 from pathlib import Path
@@ -7,19 +7,43 @@ from typing import List
 import ipaddress
 import yaml
 from fastapi import FastAPI, Request, Response, Form, HTTPException
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, RedirectResponse, PlainTextResponse
 from fastapi.templating import Jinja2Templates
-from prometheus_client import Counter, generate_latest, CONTENT_TYPE_LATEST
+from fastapi.staticfiles import StaticFiles
+from prometheus_client import Counter, Gauge, generate_latest, CONTENT_TYPE_LATEST
+from starlette.responses import JSONResponse
 
 CFG_ACTIVE = Path("/etc/auroragw/config.yaml")
 CFG_STAGING = Path("/etc/auroragw/config.staging.yaml")
 SECRETS = Path("/etc/auroragw/secrets.yaml")
 AUDIT = Path("/var/log/auroragw/audit.log")
+WEB_ERRORS = Path("/var/log/auroragw/web-errors.log")
+MONITOR_CFG = Path("/etc/auroragw/monitoring.yaml")
 
 templates = Jinja2Templates(directory="/opt/auroragw/web/templates")
 app = FastAPI(title="AuroraGW")
+app.mount("/static", StaticFiles(directory="/opt/auroragw/web/static"), name="static")
 
 REQS = Counter("auroragw_http_requests_total", "HTTP requests", ["path","method","code"])
+NET_RX_MBPS = Gauge("auroragw_net_rx_mbps", "Interface RX rate (Mbps)", ["iface"])
+NET_TX_MBPS = Gauge("auroragw_net_tx_mbps", "Interface TX rate (Mbps)", ["iface"])
+NET_RX_BYTES = Gauge("auroragw_net_rx_bytes_total", "Interface RX bytes (counter)", ["iface"])
+NET_TX_BYTES = Gauge("auroragw_net_tx_bytes_total", "Interface TX bytes (counter)", ["iface"])
+NET_RX_DROPPED = Gauge("auroragw_net_rx_dropped_total", "Interface RX dropped (counter)", ["iface"])
+NET_TX_DROPPED = Gauge("auroragw_net_tx_dropped_total", "Interface TX dropped (counter)", ["iface"])
+NET_RX_ERRORS = Gauge("auroragw_net_rx_errors_total", "Interface RX errors (counter)", ["iface"])
+NET_TX_ERRORS = Gauge("auroragw_net_tx_errors_total", "Interface TX errors (counter)", ["iface"])
+MON_MODE = Gauge("auroragw_monitoring_mode", "Monitoring mode (off=0 basic=1 advanced=2)")
+PPPOE_UP = Gauge("auroragw_pppoe_up", "PPPoE link present (1/0)")
+
+_logger = logging.getLogger("auroragw.web")
+if not _logger.handlers:
+    WEB_ERRORS.parent.mkdir(parents=True, exist_ok=True)
+    handler = logging.FileHandler(WEB_ERRORS, encoding="utf-8")
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    _logger.addHandler(handler)
+    _logger.setLevel(logging.INFO)
 
 def sh(cmd):
     return subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
@@ -29,6 +53,46 @@ def load_secrets():
         return {"admin_password": "admin"}
     return yaml.safe_load(SECRETS.read_text(encoding="utf-8")) or {"admin_password":"admin"}
 
+AUTH_FAIL_LIMIT = 5
+AUTH_FAIL_WINDOW_S = 10 * 60
+AUTH_LOCKOUT_S = 5 * 60
+_auth_lock = threading.Lock()
+_auth_state = {}  # key -> {fails:int, first_ts:float, locked_until:float}
+
+def _client_ip(request: Request) -> str:
+    try:
+        return (request.client.host or "").strip() or "unknown"
+    except Exception:
+        return "unknown"
+
+def _auth_key(ip: str, user: str) -> str:
+    return f"{ip}|{user}"
+
+def _auth_is_locked(key: str, now: float) -> float:
+    with _auth_lock:
+        st = _auth_state.get(key) or {}
+        locked_until = float(st.get("locked_until", 0.0) or 0.0)
+        if locked_until > now:
+            return locked_until
+        return 0.0
+
+def _auth_note_success(key: str):
+    with _auth_lock:
+        _auth_state.pop(key, None)
+
+def _auth_note_failure(key: str, now: float) -> float:
+    with _auth_lock:
+        st = _auth_state.get(key) or {"fails": 0, "first_ts": now, "locked_until": 0.0}
+        if now - float(st.get("first_ts", now) or now) > AUTH_FAIL_WINDOW_S:
+            st = {"fails": 0, "first_ts": now, "locked_until": 0.0}
+        st["fails"] = int(st.get("fails", 0) or 0) + 1
+        if st["fails"] >= AUTH_FAIL_LIMIT:
+            st["locked_until"] = now + AUTH_LOCKOUT_S
+            st["fails"] = 0
+            st["first_ts"] = now
+        _auth_state[key] = st
+        return float(st.get("locked_until", 0.0) or 0.0)
+
 def ok_auth(request: Request) -> bool:
     auth = request.headers.get("authorization","")
     if not auth.lower().startswith("basic "):
@@ -37,10 +101,38 @@ def ok_auth(request: Request) -> bool:
     if ":" not in raw:
         return False
     user, pw = raw.split(":",1)
+    now = time.time()
+    key = _auth_key(_client_ip(request), user)
+    if _auth_is_locked(key, now):
+        return False
     exp = (load_secrets().get("admin_password","admin"))
-    return user == "admin" and hmac.compare_digest(pw, exp)
+    ok = (user == "admin" and hmac.compare_digest(pw, exp))
+    if ok:
+        _auth_note_success(key)
+        return True
+    locked_until = _auth_note_failure(key, now)
+    if locked_until:
+        audit(f"auth lock user={user} ip={_client_ip(request)} until={time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(locked_until))}")
+    return False
 
 def require_auth(request: Request):
+    ip = _client_ip(request)
+    auth = request.headers.get("authorization","")
+    if auth.lower().startswith("basic "):
+        try:
+            raw = base64.b64decode(auth.split()[1]).decode("utf-8", errors="ignore")
+            user = raw.split(":", 1)[0] if ":" in raw else "admin"
+        except Exception:
+            user = "admin"
+        now = time.time()
+        locked_until = _auth_is_locked(_auth_key(ip, user), now)
+        if locked_until:
+            retry_after = max(1, int(locked_until - now))
+            raise HTTPException(
+                status_code=401,
+                headers={"WWW-Authenticate": "Basic realm=AuroraGW", "Retry-After": str(retry_after)},
+                detail=f"Locked out. Retry in ~{retry_after}s.",
+            )
     if not ok_auth(request):
         raise HTTPException(status_code=401, headers={"WWW-Authenticate":"Basic realm=AuroraGW"})
 
@@ -58,6 +150,55 @@ def load_yaml(path: Path) -> dict:
 def save_yaml(path: Path, data: dict):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+
+NAV_ITEMS = [
+    {"label": "Status", "path": "/status"},
+    {"label": "Config", "path": "/config"},
+    {"label": "DNS", "path": "/dns"},
+    {"label": "Firewall", "path": "/firewall"},
+    {"label": "Suricata", "path": "/suricata"},
+    {"label": "EveBox", "path": "/evebox"},
+    {"label": "Grafana", "path": "/grafana"},
+    {"label": "Traffic", "path": "/traffic"},
+    {"label": "Backups", "path": "/backups"},
+    {"label": "Logs", "path": "/logs"},
+]
+
+def wants_html(request: Request) -> bool:
+    accept = (request.headers.get("accept") or "").lower()
+    return "text/html" in accept or "*/*" in accept
+
+def render(request: Request, template_name: str, ctx: dict, *, status_code: int = 200):
+    merged = dict(ctx)
+    merged.update(
+        {
+            "request": request,
+            "nav_items": NAV_ITEMS,
+            "active_path": request.url.path,
+            "msg": request.query_params.get("msg"),
+            "err": request.query_params.get("err"),
+        }
+    )
+    return templates.TemplateResponse(template_name, merged, status_code=status_code)
+
+def cmd_error_page(request: Request, *, action: str, cmd: list[str], rc: int, output: str):
+    error_id = uuid.uuid4().hex[:12]
+    request_id = getattr(request.state, "request_id", "")
+    _logger.error(
+        f"error_id={error_id} request_id={request_id} action={action} rc={rc} cmd={cmd}\n{output}"
+    )
+    audit(f"{action} rc={rc} error_id={error_id}")
+    return render(
+        request,
+        "error.html",
+        {
+            "message": f"{action} failed. Retry; if it persists, share the Error ID.",
+            "error_id": error_id,
+            "request_id": request_id,
+            "ts": time.strftime("%Y-%m-%d %H:%M:%S"),
+        },
+        status_code=500,
+    )
 
 def active_cfg() -> dict:
     if CFG_ACTIVE.exists():
@@ -104,10 +245,34 @@ class TrafficMonitor:
         self._last = {}  # iface -> (ts, rx_bytes, tx_bytes)
         self._rates = {}  # iface -> dict
         self._history = deque(maxlen=300)  # advanced mode: last ~5min at 1s
+        self._source = "config"
+        self._override_mtime = 0.0
+        self._override = None
 
-    def _desired(self) -> tuple[str, float, list[str] | None]:
-        cfg = active_cfg()
-        mon = ((cfg.get("services") or {}).get("monitoring") or {})
+    def _load_override(self) -> dict | None:
+        if not MONITOR_CFG.exists():
+            self._override_mtime = 0.0
+            self._override = None
+            return None
+        try:
+            m = MONITOR_CFG.stat().st_mtime
+            if m != self._override_mtime:
+                self._override = load_yaml(MONITOR_CFG)
+                self._override_mtime = m
+            return self._override or {}
+        except Exception:
+            return None
+
+    def _desired(self) -> tuple[str, float, list[str] | None, str]:
+        override = self._load_override()
+        if override is not None:
+            mon = override
+            source = "override"
+        else:
+            cfg = active_cfg()
+            mon = ((cfg.get("services") or {}).get("monitoring") or {})
+            source = "config"
+
         mode = (mon.get("mode") or "off").strip().lower()
         if mode not in ("off", "basic", "advanced"):
             mode = "off"
@@ -117,13 +282,14 @@ class TrafficMonitor:
             ifaces = [str(x).strip() for x in ifaces if str(x).strip()]
         else:
             ifaces = None
-        return mode, interval, ifaces
+        return mode, interval, ifaces, source
 
     def snapshot(self) -> dict:
         with self._lock:
             return {
                 "mode": self._mode,
                 "interval_s": self._interval,
+                "source": self._source,
                 "interfaces": sorted(self._rates.keys()),
                 "rates": self._rates,
                 "history": list(self._history) if self._mode == "advanced" else [],
@@ -131,13 +297,14 @@ class TrafficMonitor:
 
     def run_forever(self):
         while True:
-            mode, interval, ifaces = self._desired()
+            mode, interval, ifaces, source = self._desired()
             now = time.time()
 
             if mode == "off":
                 with self._lock:
                     self._mode = "off"
                     self._interval = interval
+                    self._source = source
                     self._last = {}
                     self._rates = {}
                     self._history.clear()
@@ -168,6 +335,7 @@ class TrafficMonitor:
             with self._lock:
                 self._mode = mode
                 self._interval = interval
+                self._source = source
 
             time.sleep(interval)
 
@@ -190,18 +358,83 @@ def parse_dns_list(raw: str) -> list[str]:
 
 @app.middleware("http")
 async def metrics_mw(request: Request, call_next):
+    request.state.request_id = uuid.uuid4().hex[:12]
     resp = await call_next(request)
+    resp.headers["X-AuroraGW-Request-ID"] = request.state.request_id
     REQS.labels(path=request.url.path, method=request.method, code=str(resp.status_code)).inc()
     return resp
 
+@app.exception_handler(RequestValidationError)
+async def validation_error(request: Request, exc: RequestValidationError):
+    error_id = uuid.uuid4().hex[:12]
+    request_id = getattr(request.state, "request_id", "")
+    _logger.error(f"error_id={error_id} request_id={request_id} path={request.url.path} validation={exc.errors()}")
+    if request.url.path.startswith("/api/"):
+        return JSONResponse({"error": "validation_error", "error_id": error_id, "detail": exc.errors()}, status_code=422)
+    return render(
+        request,
+        "error.html",
+        {"message": "Invalid input. Check the fields and try again.", "error_id": error_id, "request_id": request_id, "ts": time.strftime("%Y-%m-%d %H:%M:%S")},
+        status_code=422,
+    )
+
+@app.exception_handler(HTTPException)
+async def http_error(request: Request, exc: HTTPException):
+    if exc.status_code == 401:
+        return Response(content="", status_code=401, headers=exc.headers or {})
+    if request.url.path.startswith("/api/"):
+        return JSONResponse({"error": "http_error", "status_code": exc.status_code, "detail": exc.detail}, status_code=exc.status_code, headers=exc.headers or {})
+    if wants_html(request):
+        error_id = uuid.uuid4().hex[:12]
+        request_id = getattr(request.state, "request_id", "")
+        _logger.info(f"error_id={error_id} request_id={request_id} path={request.url.path} http={exc.status_code} detail={exc.detail}")
+        return render(
+            request,
+            "error.html",
+            {"message": str(exc.detail), "error_id": error_id, "request_id": request_id, "ts": time.strftime("%Y-%m-%d %H:%M:%S")},
+            status_code=exc.status_code,
+        )
+    return PlainTextResponse(str(exc.detail), status_code=exc.status_code, headers=exc.headers or {})
+
+@app.exception_handler(Exception)
+async def unhandled_error(request: Request, exc: Exception):
+    error_id = uuid.uuid4().hex[:12]
+    request_id = getattr(request.state, "request_id", "")
+    _logger.error(f"error_id={error_id} request_id={request_id} path={request.url.path}\n{traceback.format_exc()}")
+    if request.url.path.startswith("/api/"):
+        return JSONResponse({"error": "internal_error", "error_id": error_id}, status_code=500)
+    return render(
+        request,
+        "error.html",
+        {"message": "Internal error. Please retry; if it persists, share the Error ID.", "error_id": error_id, "request_id": request_id, "ts": time.strftime("%Y-%m-%d %H:%M:%S")},
+        status_code=500,
+    )
+
 @app.get("/metrics")
 def metrics():
+    snap = TRAFFIC.snapshot()
+    mode = (snap.get("mode") or "off").strip().lower()
+    MON_MODE.set(2 if mode == "advanced" else (1 if mode == "basic" else 0))
+    PPPOE_UP.set(1 if (Path("/sys/class/net/pppoe0").exists()) else 0)
+    rates = snap.get("rates") or {}
+    for iface, v in rates.items():
+        try:
+            NET_RX_MBPS.labels(iface=iface).set(float(v.get("rx_mbps") or 0.0))
+            NET_TX_MBPS.labels(iface=iface).set(float(v.get("tx_mbps") or 0.0))
+            NET_RX_BYTES.labels(iface=iface).set(float(v.get("rx_bytes") or 0.0))
+            NET_TX_BYTES.labels(iface=iface).set(float(v.get("tx_bytes") or 0.0))
+            NET_RX_DROPPED.labels(iface=iface).set(float(v.get("rx_dropped") or 0.0))
+            NET_TX_DROPPED.labels(iface=iface).set(float(v.get("tx_dropped") or 0.0))
+            NET_RX_ERRORS.labels(iface=iface).set(float(v.get("rx_errors") or 0.0))
+            NET_TX_ERRORS.labels(iface=iface).set(float(v.get("tx_errors") or 0.0))
+        except Exception:
+            continue
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request):
     require_auth(request)
-    return templates.TemplateResponse("index.html", {"request": request})
+    return render(request, "index.html", {})
 
 @app.get("/status", response_class=HTMLResponse)
 def status_page(request: Request):
@@ -210,14 +443,27 @@ def status_page(request: Request):
     routes = sh(["bash","-lc","ip route"]).stdout
     nft = sh(["bash","-lc","nft list ruleset | head -n 140"]).stdout
     ppp = sh(["bash","-lc","ip link show pppoe0 2>/dev/null || true"]).stdout
-    return templates.TemplateResponse("status.html", {"request":request, "ip_addr":ip_addr, "routes":routes, "nft":nft, "ppp":ppp})
+    pending = None
+    try:
+        p = Path("/run/auroragw/pending.json")
+        if p.exists():
+            data = json.loads(p.read_text(encoding="utf-8"))
+            timeout = int(data.get("timeout", 0) or 0)
+            ts = float(data.get("ts", 0) or 0)
+            seconds_left = None
+            if timeout and ts:
+                seconds_left = max(0, int(timeout - (time.time() - ts)))
+            pending = {"timeout": timeout, "ts": ts, "seconds_left": seconds_left}
+    except Exception:
+        pending = {"timeout": None, "ts": None, "seconds_left": None}
+    return render(request, "status.html", {"ip_addr": ip_addr, "routes": routes, "nft": nft, "ppp": ppp, "pending": pending})
 
 @app.get("/config", response_class=HTMLResponse)
 def config_get(request: Request):
     require_auth(request)
     active = CFG_ACTIVE.read_text(encoding="utf-8") if CFG_ACTIVE.exists() else ""
     staging = CFG_STAGING.read_text(encoding="utf-8") if CFG_STAGING.exists() else ""
-    return templates.TemplateResponse("config.html", {"request":request, "active":active, "staging":staging})
+    return render(request, "config.html", {"active": active, "staging": staging})
 
 @app.post("/config")
 def config_post(request: Request, staging: str = Form(...)):
@@ -225,50 +471,93 @@ def config_post(request: Request, staging: str = Form(...)):
     CFG_STAGING.parent.mkdir(parents=True, exist_ok=True)
     CFG_STAGING.write_text(staging, encoding="utf-8")
     audit("updated staging config")
-    return RedirectResponse(url="/config", status_code=303)
+    return RedirectResponse(url="/config?msg=Saved+staging+config", status_code=303)
 
 @app.post("/apply")
-def apply(request: Request, require_confirm: str = Form("1"), timeout: int = Form(120)):
+def apply(request: Request, require_confirm: str | None = Form(None), timeout: int = Form(120)):
     require_auth(request)
-    args = ["auroragd","apply","--require-confirm","--timeout",str(timeout),"--commit","/etc/auroragw/config.staging.yaml"] if require_confirm else            ["auroragd","apply","--commit","/etc/auroragw/config.staging.yaml"]
+    want_confirm = bool(require_confirm)
+    args = ["auroragd","apply","--require-confirm","--timeout",str(timeout),"--commit","/etc/auroragw/config.staging.yaml"] if want_confirm else ["auroragd","apply","--commit","/etc/auroragw/config.staging.yaml"]
     r = sh(args)
-    audit(f"apply rc={r.returncode}")
     if r.returncode != 0:
-        return PlainTextResponse(r.stdout, status_code=500)
-    return RedirectResponse(url="/status", status_code=303)
+        return cmd_error_page(request, action="Apply", cmd=args, rc=r.returncode, output=r.stdout)
+    audit(f"apply rc={r.returncode}")
+    return RedirectResponse(url="/status?msg=Apply+started", status_code=303)
 
 @app.post("/confirm")
 def confirm(request: Request):
     require_auth(request)
     r = sh(["auroragd","confirm"])
-    audit(f"confirm rc={r.returncode}")
     if r.returncode != 0:
-        return PlainTextResponse(r.stdout, status_code=500)
-    return RedirectResponse(url="/status", status_code=303)
+        return cmd_error_page(request, action="Confirm", cmd=["auroragd","confirm"], rc=r.returncode, output=r.stdout)
+    audit(f"confirm rc={r.returncode}")
+    return RedirectResponse(url="/status?msg=Confirmed", status_code=303)
 
 @app.get("/backups", response_class=HTMLResponse)
 def backups(request: Request):
     require_auth(request)
     out = sh(["bash","-lc","ls -1 /var/lib/auroragw/backups 2>/dev/null || true"]).stdout
-    return templates.TemplateResponse("backups.html", {"request":request, "backups":out})
+    return render(request, "backups.html", {"backups": out})
 
 @app.get("/firewall", response_class=HTMLResponse)
 def firewall_get(request: Request):
     require_auth(request)
     cfg = load_yaml(CFG_STAGING if CFG_STAGING.exists() else CFG_ACTIVE)
     pf = (((cfg.get("firewall") or {}).get("port_forwards")) or [])
-    return templates.TemplateResponse("firewall.html", {"request": request, "port_forwards": pf})
+    return render(request, "firewall.html", {"port_forwards": pf})
 
 @app.get("/traffic", response_class=HTMLResponse)
 def traffic_page(request: Request):
     require_auth(request)
     snap = TRAFFIC.snapshot()
-    return templates.TemplateResponse("traffic.html", {"request": request, "traffic": snap})
+    override_enabled = MONITOR_CFG.exists()
+    if override_enabled:
+        settings = load_yaml(MONITOR_CFG)
+    else:
+        cfg = active_cfg()
+        settings = ((cfg.get("services") or {}).get("monitoring") or {})
+    mode = (settings.get("mode") or snap.get("mode") or "off").strip().lower()
+    selected = [str(x) for x in (settings.get("interfaces") or [])]
+    return render(
+        request,
+        "traffic.html",
+        {"traffic": snap, "ifaces": list_ifaces(), "mode": mode, "selected_ifaces": selected, "override_enabled": override_enabled},
+    )
 
 @app.get("/api/traffic")
 def api_traffic(request: Request):
     require_auth(request)
     return TRAFFIC.snapshot()
+
+@app.post("/traffic/settings")
+def traffic_settings(
+    request: Request,
+    mode: str = Form("off"),
+    interfaces: List[str] = Form([]),
+):
+    require_auth(request)
+    mode = (mode or "off").strip().lower()
+    if mode not in ("off", "basic", "advanced"):
+        mode = "off"
+    ifaces = [str(x).strip() for x in interfaces if str(x).strip()]
+    data = {"mode": mode}
+    if ifaces:
+        data["interfaces"] = ifaces
+    MONITOR_CFG.parent.mkdir(parents=True, exist_ok=True)
+    MONITOR_CFG.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+    audit(f"monitoring override saved mode={mode} interfaces={ifaces or 'ALL'}")
+    return RedirectResponse(url="/traffic?msg=Saved+monitoring+settings", status_code=303)
+
+@app.post("/traffic/reset")
+def traffic_reset(request: Request):
+    require_auth(request)
+    try:
+        if MONITOR_CFG.exists():
+            MONITOR_CFG.unlink()
+    except Exception as e:
+        return cmd_error_page(request, action="Reset monitoring settings", cmd=["unlink", str(MONITOR_CFG)], rc=1, output=str(e))
+    audit("monitoring override reset")
+    return RedirectResponse(url="/traffic?msg=Reset+to+config+defaults", status_code=303)
 
 @app.post("/firewall/add")
 def firewall_add(
@@ -292,7 +581,7 @@ def firewall_add(
     )
     save_yaml(CFG_STAGING, cfg)
     audit(f"firewall add port_forward {proto}:{wan_port}->{lan_ip}:{lan_port}")
-    return RedirectResponse(url="/firewall", status_code=303)
+    return RedirectResponse(url="/firewall?msg=Port+forward+added", status_code=303)
 
 @app.post("/firewall/delete")
 def firewall_delete(request: Request, idx: int = Form(...)):
@@ -305,7 +594,7 @@ def firewall_delete(request: Request, idx: int = Form(...)):
     removed = cfg["firewall"]["port_forwards"].pop(idx)
     save_yaml(CFG_STAGING, cfg)
     audit(f"firewall delete port_forward {removed}")
-    return RedirectResponse(url="/firewall", status_code=303)
+    return RedirectResponse(url="/firewall?msg=Port+forward+deleted", status_code=303)
 
 @app.get("/suricata", response_class=HTMLResponse)
 def suricata_get(request: Request):
@@ -324,17 +613,7 @@ def suricata_get(request: Request):
     if fast.strip():
         logs = logs + "\n\n== /var/log/suricata/fast.log (tail) ==\n" + fast
 
-    return templates.TemplateResponse(
-        "suricata.html",
-        {
-            "request": request,
-            "enabled": enabled,
-            "interfaces": interfaces,
-            "iface_tokens": iface_tokens,
-            "status": status,
-            "logs": logs,
-        },
-    )
+    return render(request, "suricata.html", {"enabled": enabled, "interfaces": interfaces, "iface_tokens": iface_tokens, "status": status, "logs": logs})
 
 @app.post("/suricata")
 def suricata_post(
@@ -353,7 +632,7 @@ def suricata_post(
 
     save_yaml(CFG_STAGING, cfg)
     audit(f"suricata updated enabled={cfg['services']['suricata']['enabled']} interfaces={cfg['services']['suricata']['interfaces']}")
-    return RedirectResponse(url="/suricata", status_code=303)
+    return RedirectResponse(url="/suricata?msg=Saved", status_code=303)
 
 @app.get("/evebox", response_class=HTMLResponse)
 def evebox_get(request: Request):
@@ -367,10 +646,7 @@ def evebox_get(request: Request):
 
     # Best-effort: link back to this router's host (from Host header).
     host = (request.headers.get("host", "192.168.101.1").split(":", 1)[0]).strip() or "192.168.101.1"
-    return templates.TemplateResponse(
-        "evebox.html",
-        {"request": request, "enabled": enabled, "status": status, "eve_tail": eve_tail, "host": host},
-    )
+    return render(request, "evebox.html", {"enabled": enabled, "status": status, "eve_tail": eve_tail, "host": host})
 
 @app.post("/evebox")
 def evebox_post(request: Request, enabled: str = Form("0")):
@@ -381,7 +657,49 @@ def evebox_post(request: Request, enabled: str = Form("0")):
     cfg["services"]["evebox"]["enabled"] = (enabled == "1")
     save_yaml(CFG_STAGING, cfg)
     audit(f"evebox updated enabled={cfg['services']['evebox']['enabled']}")
-    return RedirectResponse(url="/evebox", status_code=303)
+    return RedirectResponse(url="/evebox?msg=Saved", status_code=303)
+
+@app.get("/grafana", response_class=HTMLResponse)
+def grafana_get(request: Request):
+    require_auth(request)
+    cfg = load_yaml(CFG_STAGING if CFG_STAGING.exists() else CFG_ACTIVE)
+    g = ((cfg.get("services") or {}).get("grafana") or {})
+    enabled = bool(g.get("enabled", False))
+    mode = (g.get("mode") or "remote").strip().lower()
+    if mode not in ("local", "remote"):
+        mode = "remote"
+    remote_url = (g.get("remote_url") or "").strip()
+
+    status = sh(["bash", "-lc", "systemctl --no-pager --plain status auroragw-observability.service 2>/dev/null || true"]).stdout
+    ps = sh(["bash", "-lc", "cd /opt/auroragw/observability/local 2>/dev/null && docker compose ps 2>/dev/null || true"]).stdout
+
+    host = (request.headers.get("host", "192.168.101.1").split(":", 1)[0]).strip() or "192.168.101.1"
+    return render(
+        request,
+        "grafana.html",
+        {"enabled": enabled, "mode": mode, "remote_url": remote_url, "status": status, "ps": ps, "host": host},
+    )
+
+@app.post("/grafana")
+def grafana_post(
+    request: Request,
+    enabled: str = Form("0"),
+    mode: str = Form("remote"),
+    remote_url: str = Form(""),
+):
+    require_auth(request)
+    cfg = load_yaml(CFG_STAGING if CFG_STAGING.exists() else CFG_ACTIVE)
+    cfg.setdefault("services", {})
+    cfg["services"].setdefault("grafana", {})
+    mode = (mode or "remote").strip().lower()
+    if mode not in ("local", "remote"):
+        mode = "remote"
+    cfg["services"]["grafana"]["enabled"] = (enabled == "1")
+    cfg["services"]["grafana"]["mode"] = mode
+    cfg["services"]["grafana"]["remote_url"] = (remote_url or "").strip()
+    save_yaml(CFG_STAGING, cfg)
+    audit(f"grafana updated enabled={cfg['services']['grafana']['enabled']} mode={mode}")
+    return RedirectResponse(url="/grafana?msg=Saved", status_code=303)
 
 @app.get("/dns", response_class=HTMLResponse)
 def dns_get(request: Request):
@@ -410,15 +728,7 @@ def dns_get(request: Request):
             }
         )
 
-    return templates.TemplateResponse(
-        "dns.html",
-        {
-            "request": request,
-            "up_mode": up_mode,
-            "up_servers": up_servers_text,
-            "segments": seg_rows,
-        },
-    )
+    return render(request, "dns.html", {"up_mode": up_mode, "up_servers": up_servers_text, "segments": seg_rows})
 
 @app.post("/dns")
 def dns_post(
@@ -456,23 +766,24 @@ def dns_post(
 
     save_yaml(CFG_STAGING, cfg)
     audit("dns settings updated")
-    return RedirectResponse(url="/dns", status_code=303)
+    return RedirectResponse(url="/dns?msg=Saved", status_code=303)
 
 @app.post("/backup")
 def backup(request: Request):
     require_auth(request)
     r = sh(["auroragd","backup"])
-    audit(f"backup rc={r.returncode}")
     if r.returncode != 0:
-        return PlainTextResponse(r.stdout, status_code=500)
-    return RedirectResponse(url="/backups", status_code=303)
+        return cmd_error_page(request, action="Backup", cmd=["auroragd","backup"], rc=r.returncode, output=r.stdout)
+    audit(f"backup rc={r.returncode}")
+    return RedirectResponse(url="/backups?msg=Backup+created", status_code=303)
 
 @app.get("/logs", response_class=HTMLResponse)
 def logs(request: Request):
     require_auth(request)
     audit_log = AUDIT.read_text(encoding="utf-8")[-8000:] if AUDIT.exists() else ""
+    web_errors = WEB_ERRORS.read_text(encoding="utf-8")[-8000:] if WEB_ERRORS.exists() else ""
     journal = sh(["bash","-lc","journalctl -u auroragw-web -u auroragw-health -u auroragw-pppoe -n 200 --no-pager 2>/dev/null || true"]).stdout
-    return templates.TemplateResponse("logs.html", {"request":request, "audit":audit_log, "journal":journal})
+    return render(request, "logs.html", {"audit": audit_log, "web_errors": web_errors, "journal": journal})
 
 @app.get("/api/status")
 def api_status(request: Request):

@@ -1,1 +1,30 @@
-<!doctype html><html><head><meta charset='utf-8'><title>AuroraGW</title></head><body><h1>AuroraGW</h1><ul><li><a href='/status'>Status</a></li><li><a href='/config'>Config</a></li><li><a href='/dns'>DNS</a></li><li><a href='/firewall'>Firewall</a></li><li><a href='/suricata'>Suricata</a></li><li><a href='/evebox'>EveBox</a></li><li><a href='/traffic'>Traffic</a></li><li><a href='/backups'>Backups</a></li><li><a href='/logs'>Logs</a></li></ul><p>Auth: HTTP Basic (admin / password set in installer).</p></body></html>
+{% extends "base.html" %}
+
+{% block title %}Dashboard · AuroraGW{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <h1 class="h1">Dashboard</h1>
+    <p class="muted">Home gateway management for LAN/OPT1 (LAN-only by default).</p>
+  </div>
+
+  <div class="grid cols-2">
+    <div class="card">
+      <h2 class="h2">Quick actions</h2>
+      <div class="row">
+        <a class="btn primary" href="/status">Status + Apply</a>
+        <a class="btn" href="/config">Config editor</a>
+        <a class="btn" href="/dns">DNS settings</a>
+      </div>
+    </div>
+    <div class="card">
+      <h2 class="h2">Troubleshooting</h2>
+      <div class="row">
+        <a class="btn" href="/traffic">Traffic</a>
+        <a class="btn" href="/logs">Logs</a>
+        <a class="btn" href="/suricata">Suricata</a>
+        <a class="btn" href="/evebox">EveBox</a>
+      </div>
+    </div>
+  </div>
+{% endblock %}

@@ -1,33 +1,35 @@
-<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <title>EveBox</title>
-  </head>
-  <body>
-    <h1>EveBox (Suricata EVE viewer)</h1>
-    <p><a href="/">Home</a></p>
+{% extends "base.html" %}
 
-    <p>
-      EveBox runs on-box and is LAN-only. It reads <code>/var/log/suricata/eve.json</code>.
-      Enable Suricata first, then enable EveBox.
-    </p>
+{% block title %}EveBox · AuroraGW{% endblock %}
 
-    <h2>Configuration</h2>
-    <form method="post" action="/evebox">
-      <label><input type="checkbox" name="enabled" value="1" {% if enabled %}checked{% endif %}/> enabled</label>
-      <p><button type="submit">Save to staging</button></p>
-    </form>
+{% block content %}
+  <div class="card">
+    <h1 class="h1">EveBox</h1>
+    <p class="muted">On-box Suricata EVE viewer (LAN-only). Enable Suricata first, then enable EveBox.</p>
+  </div>
 
-    <h2>Status</h2>
-    <pre>{{ status }}</pre>
+  <div class="grid cols-2">
+    <div class="card">
+      <h2 class="h2">Configuration</h2>
+      <form method="post" action="/evebox">
+        <label><input type="checkbox" name="enabled" value="1" {% if enabled %}checked{% endif %}/> enabled</label>
+        <button class="primary" type="submit">Save to staging</button>
+      </form>
 
-    <p>
-      When enabled, open:
-      <a href="http://{{ host }}:5636/" target="_blank">http://{{ host }}:5636/</a>
-    </p>
+      <div class="h2">Open UI</div>
+      <p class="muted">
+        When enabled, open:
+        <a class="btn" href="http://{{ host }}:5636/" target="_blank">http://{{ host }}:5636/</a>
+      </p>
+    </div>
+    <div class="card">
+      <h2 class="h2">Service status</h2>
+      <pre>{{ status }}</pre>
+    </div>
+  </div>
 
-    <h2>Recent Suricata EVE events (tail)</h2>
-    <pre style="max-height: 360px; overflow: auto;">{{ eve_tail }}</pre>
-  </body>
-</html>
+  <div class="card">
+    <h2 class="h2">Recent EVE events (tail)</h2>
+    <pre>{{ eve_tail }}</pre>
+  </div>
+{% endblock %}

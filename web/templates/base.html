@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{% block title %}AuroraGW{% endblock %}</title>
+    <link rel="stylesheet" href="/static/app.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="container topbar__inner">
+        <div class="brand">
+          <a class="brand__link" href="/">AuroraGW</a>
+          <span class="brand__meta">Gateway UI</span>
+        </div>
+        <nav class="nav">
+          {% for item in nav_items %}
+            <a class="nav__link {% if item.path == active_path %}is-active{% endif %}" href="{{ item.path }}">{{ item.label }}</a>
+          {% endfor %}
+        </nav>
+      </div>
+    </header>
+
+    <main class="container page">
+      {% if msg %}
+        <div class="alert alert--ok">{{ msg }}</div>
+      {% endif %}
+      {% if err %}
+        <div class="alert alert--err">{{ err }}</div>
+      {% endif %}
+
+      {% block content %}{% endblock %}
+      <footer class="footer">
+        <div class="muted">
+          Auth: HTTP Basic (<code>admin</code> / password set in installer). LAN-only by firewall policy.
+        </div>
+      </footer>
+    </main>
+  </body>
+</html>

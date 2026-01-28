@@ -162,7 +162,11 @@ sudo ./scripts/smoke-tests.sh
 
 Traffic monitoring is for troubleshooting and visibility.
 
-Configure in staging YAML:
+You can configure it either:
+- **Runtime (recommended for troubleshooting):** Web UI `Traffic` page (`/traffic`) writes `/etc/auroragw/monitoring.yaml` and takes effect immediately (no Apply required).
+- **Config default:** `services.monitoring` in the main config (takes effect after Apply + Confirm).
+
+Configure in staging YAML (config default):
 ```yaml
 services:
   monitoring:
@@ -173,6 +177,39 @@ services:
 - **off**: no sampling, `/traffic` is empty
 - **basic**: low-rate sampling (recommended)
 - **advanced**: higher-rate sampling + short history shown in `/traffic`
+- Sampling is in-memory inside `auroragw-web`; it continues even if you close the browser tab and resets on service restart.
+
+Runtime override file example:
+```yaml
+mode: advanced
+interfaces: [pppoe0]   # optional; omit/empty = all
+```
+
+## 11.1) Web UI errors (for troubleshooting)
+
+If the Web UI shows an error page, it includes an **Error ID** and **Request ID**.
+Share those IDs when reporting issues, and optionally include:
+```bash
+sudo journalctl -u auroragw-web -n 200 --no-pager
+sudo tail -n 200 /var/log/auroragw/web-errors.log 2>/dev/null || true
+```
+
+## 11.2) Web UI auth lockout (brute-force protection)
+
+The Web UI uses HTTP Basic Auth and includes a simple lockout:
+- After **5 invalid attempts**, the source IP/user is locked out for **~5 minutes**.
+- Lockout state is in-memory inside `auroragw-web` (resets on service restart).
+
+## 11.3) Grafana / Prometheus (optional)
+
+AuroraGW exposes Prometheus metrics at:
+- `https://<auroragw-lan-ip>:8443/metrics`
+
+You can run Grafana/Prometheus:
+- **on a LAN VM/NAS (recommended)**, or
+- **locally on AuroraGW** (uses Docker; LAN-only by firewall policy).
+
+See `docs/GRAFANA.md`.
 
 ## 12) DNS configuration (WAN-learned defaults + per-segment overrides)
 

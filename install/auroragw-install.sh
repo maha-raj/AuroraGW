@@ -21,6 +21,7 @@ if [[ $RECONFIGURE -eq 0 ]]; then
   unzip \
   python3-netifaces \
   speedtest-cli \
+  docker.io docker-compose-plugin \
   || true
   apt-get install -y --no-install-recommends suricata openssl whiptail rsync || true
 else
@@ -171,6 +172,7 @@ services:
   cockpit: { enabled: $( [[ $COCKPIT_ENABLE -eq 1 ]] && echo true || echo false ) }
   monitoring: { mode: ${MONITOR_MODE} }
   evebox: { enabled: false }
+  grafana: { enabled: false, mode: remote, remote_url: "" }
 
 firewall:
   port_forwards: []

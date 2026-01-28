@@ -1,35 +1,41 @@
-<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <title>Suricata</title>
-  </head>
-  <body>
-    <h1>Suricata (IDS)</h1>
-    <p><a href="/">Home</a></p>
+{% extends "base.html" %}
 
-    <p>
-      This config edits staging YAML. Click Apply on the Status page to activate changes.
-      Suricata is intended as IDS (not inline IPS) and can impact throughput when enabled on busy interfaces.
+{% block title %}Suricata · AuroraGW{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <h1 class="h1">Suricata (IDS)</h1>
+    <p class="muted">
+      Edits staging config. Apply + Confirm from Status to activate. Suricata runs as IDS (not inline IPS).
     </p>
+  </div>
 
-    <h2>Configuration</h2>
-    <form method="post" action="/suricata">
-      <label><input type="checkbox" name="enabled" value="1" {% if enabled %}checked{% endif %}/> enabled</label>
-      <p>Interfaces to monitor:</p>
-      {% for t in iface_tokens %}
-        <label>
-          <input type="checkbox" name="interfaces" value="{{ t }}" {% if t in interfaces %}checked{% endif %}/>
-          {{ t }}
-        </label><br/>
-      {% endfor %}
-      <p><button type="submit">Save to staging</button></p>
-    </form>
+  <div class="grid cols-2">
+    <div class="card">
+      <h2 class="h2">Configuration</h2>
+      <form method="post" action="/suricata">
+        <label><input type="checkbox" name="enabled" value="1" {% if enabled %}checked{% endif %}/> enabled</label>
+        <div class="muted" style="margin-top: 8px;">Interfaces to monitor:</div>
+        <div class="row" style="margin-top: 8px;">
+          {% for t in iface_tokens %}
+            <label style="display:flex; gap:8px; align-items:center; margin: 0 12px 8px 0;">
+              <input type="checkbox" name="interfaces" value="{{ t }}" {% if t in interfaces %}checked{% endif %}/>
+              <span>{{ t }}</span>
+            </label>
+          {% endfor %}
+        </div>
+        <button class="primary" type="submit">Save to staging</button>
+      </form>
+    </div>
 
-    <h2>Status</h2>
-    <pre>{{ status }}</pre>
+    <div class="card">
+      <h2 class="h2">Status</h2>
+      <pre>{{ status }}</pre>
+    </div>
+  </div>
 
-    <h2>Recent logs</h2>
-    <pre style="max-height: 360px; overflow: auto;">{{ logs }}</pre>
-  </body>
-</html>
+  <div class="card">
+    <h2 class="h2">Recent logs</h2>
+    <pre>{{ logs }}</pre>
+  </div>
+{% endblock %}

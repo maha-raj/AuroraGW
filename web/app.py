@@ -573,9 +573,36 @@ def firewall_add(
         raise HTTPException(status_code=400, detail="proto must be tcp or udp")
     if wan_port < 1 or wan_port > 65535 or lan_port < 1 or lan_port > 65535:
         raise HTTPException(status_code=400, detail="invalid port")
+    try:
+        ip_obj = ipaddress.ip_address((lan_ip or "").strip())
+    except Exception:
+        raise HTTPException(status_code=400, detail="LAN IP must be a valid IP address")
+
     cfg = load_yaml(CFG_STAGING if CFG_STAGING.exists() else CFG_ACTIVE)
     cfg.setdefault("firewall", {})
     cfg["firewall"].setdefault("port_forwards", [])
+
+    # Prevent duplicate WAN port mappings (proto+port).
+    for r in cfg["firewall"]["port_forwards"]:
+        if (r.get("proto") or "").lower() == proto and int(r.get("wan_port") or 0) == int(wan_port):
+            raise HTTPException(status_code=400, detail=f"duplicate rule: {proto} WAN port {wan_port} already exists")
+
+    # Basic safety: ensure lan_ip is inside one of the defined segment subnets.
+    seg_ok = False
+    for seg in (cfg.get("segments") or []):
+        addr = (seg.get("address") or "").strip()
+        if not addr:
+            continue
+        try:
+            net = ipaddress.ip_interface(addr).network
+            if ip_obj in net:
+                seg_ok = True
+                break
+        except Exception:
+            continue
+    if not seg_ok:
+        raise HTTPException(status_code=400, detail="LAN IP must be inside a configured segment subnet")
+
     cfg["firewall"]["port_forwards"].append(
         {"proto": proto, "wan_port": int(wan_port), "lan_ip": lan_ip.strip(), "lan_port": int(lan_port)}
     )

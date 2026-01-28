@@ -42,6 +42,7 @@ sudo /opt/auroragw/install/auroragw-install.sh --reconfigure
 - `/firewall`: add/remove **port forwards** (WAN → LAN/OPT1)
 - `/suricata`: enable/disable IDS + select interfaces (then Apply/Confirm)
 - `/evebox`: enable/disable EveBox (then Apply/Confirm) and open EveBox UI on port 5636
+- `/grafana`: optional Grafana module (local or remote; then Apply/Confirm)
 - `/traffic`: interface rates/counters (optional; see section 11)
 
 ## 4) WAN mode: DHCP ↔ PPPoE
@@ -57,6 +58,8 @@ wan:
 ```
 
 Then Apply + Confirm in `/status`.
+
+Note: when in PPPoE mode, AuroraGW enables a conservative TCP MSS clamp to help avoid PMTUD issues (common with PPPoE MTU 1492).
 
 PPPoE service:
 ```bash

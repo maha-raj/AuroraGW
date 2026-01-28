@@ -5,6 +5,7 @@ import yaml
 import jsonschema
 import ipaddress
 import secrets
+import re
 
 BASE = Path("/opt/auroragw")
 SCHEMA_PATH = BASE / "config/schema.json"
@@ -28,6 +29,9 @@ def log(msg: str):
     with AUDIT.open("a", encoding="utf-8") as f:
         f.write(f"[{ts}] {msg}\n")
 
+def warn(msg: str):
+    log(f"WARN {msg}")
+
 def load_cfg(path: Path):
     return yaml.safe_load(path.read_text(encoding="utf-8"))
 
@@ -36,7 +40,7 @@ def validate_cfg(cfg: dict):
     jsonschema.validate(cfg, schema)
 
 def mac_map():
-    out = sh(["bash","-lc","ip -o link"]).stdout.splitlines()
+    out = sh(["ip", "-o", "link"]).stdout.splitlines()
     m = {}
     for line in out:
         parts = line.split()
@@ -49,6 +53,27 @@ def mac_map():
 def ifname_for(cfg, ifref: str, ifs: dict):
     mac = cfg["interfaces"][ifref]["mac"].lower()
     return ifs[mac]
+
+_IFNAME_RE = re.compile(r"^[a-zA-Z0-9_.:-]+$")
+
+def list_system_ifnames() -> set[str]:
+    base = Path("/sys/class/net")
+    if not base.exists():
+        return set()
+    out = set()
+    for p in base.iterdir():
+        name = p.name
+        if name and name != "lo":
+            out.add(name)
+    return out
+
+def is_safe_ifname(name: str) -> bool:
+    if not name:
+        return False
+    if not _IFNAME_RE.match(name):
+        return False
+    sys_if = list_system_ifnames()
+    return name in sys_if or name == "pppoe0"
 
 def render_netplan(cfg, ifs):
     wan_if = ifname_for(cfg,"wan",ifs)
@@ -122,12 +147,24 @@ def render_nft(cfg, ifs):
     dnat_block = "\n    ".join(dnat_lines) if dnat_lines else "# (no port forwards configured)"
     port_fwd_enabled = bool(dnat_lines)
 
+    # PPPoE MSS clamping helps avoid PMTUD issues with typical MTU 1492.
+    # MSS = MTU - 40 (IPv4) => 1452 for MTU 1492.
+    mss_clamp = ""
+    if cfg["wan"]["mode"] == "pppoe":
+        mss = 1452
+        mss_clamp = f'tcp flags syn tcp option maxseg size set {mss}'
+
     return f'''flush ruleset
 
 table inet mangle {{
   chain prerouting {{
     type filter hook prerouting priority -150; policy accept;
     {dscp_block}
+  }}
+
+  chain forward {{
+    type filter hook forward priority -150; policy accept;
+    {mss_clamp if mss_clamp else "# (no MSS clamping; not PPPoE)"}
   }}
 }}
 
@@ -219,10 +256,22 @@ def discover_system_dns_servers():
     # Prefer systemd-resolved, fallback to /etc/resolv.conf.
     servers = []
     try:
-        out = sh(["bash","-lc","resolvectl dns 2>/dev/null | awk '{for(i=2;i<=NF;i++) print $i}'"]).stdout
-        servers += [x.strip() for x in out.splitlines() if x.strip()]
+        r = sh(["resolvectl", "dns"], check=False)
+        if r.returncode == 0:
+            for line in r.stdout.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                # Formats vary slightly; safe approach: keep tokens that look like IPs.
+                for tok in line.split():
+                    tok = tok.strip()
+                    try:
+                        ipaddress.ip_address(tok)
+                        servers.append(tok)
+                    except Exception:
+                        continue
     except Exception:
-        pass
+        warn("discover_system_dns_servers: resolvectl failed")
     if not servers:
         try:
             text = Path("/etc/resolv.conf").read_text(encoding="utf-8")
@@ -231,7 +280,7 @@ def discover_system_dns_servers():
                 if line.startswith("nameserver "):
                     servers.append(line.split()[1].strip())
         except Exception:
-            pass
+            warn("discover_system_dns_servers: /etc/resolv.conf read failed")
     # Filter out local stub addresses.
     out = []
     for s in servers:
@@ -267,8 +316,19 @@ def upstream_dns_servers(cfg):
 def render_unbound_base(cfg, ifs):
     lan_if = ifname_for(cfg,"lan",ifs)
     opt_if = ifname_for(cfg,"opt1",ifs)
-    ips = sh(["bash","-lc", f"ip -4 -o addr show dev {lan_if} | awk '{{print $4}}'"]).stdout.strip().splitlines()
-    ips += sh(["bash","-lc", f"ip -4 -o addr show dev {opt_if} | awk '{{print $4}}'"]).stdout.strip().splitlines()
+    ips = []
+    for dev in [lan_if, opt_if]:
+        if not is_safe_ifname(dev):
+            continue
+        r = sh(["ip", "-4", "-o", "addr", "show", "dev", dev], check=False)
+        for line in (r.stdout or "").splitlines():
+            parts = line.split()
+            if "inet" in parts:
+                try:
+                    idx = parts.index("inet")
+                    ips.append(parts[idx + 1])
+                except Exception:
+                    continue
     addrs = [ip.split('/')[0] for ip in ips if ip]
     listen = "\n".join([f"  interface: {a}" for a in addrs]) if addrs else "  interface: 0.0.0.0"
     return f'''server:
@@ -379,10 +439,12 @@ def resolve_iface_token(cfg, ifs, token: str):
     if not t:
         return None
     if t in ("wan", "lan", "opt1"):
-        return ifname_for(cfg, t, ifs)
+        name = ifname_for(cfg, t, ifs)
+        return name if is_safe_ifname(name) else None
     if t == "pppoe0":
         return "pppoe0"
-    return t
+    # Allow only existing system interface names (prevents shell injection via config).
+    return t if is_safe_ifname(t) else None
 
 def apply_suricata(cfg, ifs):
     s = (cfg.get("services", {}).get("suricata", {}) or {})
@@ -399,32 +461,38 @@ def apply_suricata(cfg, ifs):
 
     # Best-effort: stop any previously enabled instances we know about.
     for ifn in set(ifnames + [ifname_for(cfg, "lan", ifs), ifname_for(cfg, "opt1", ifs), ifname_for(cfg, "wan", ifs), "pppoe0"]):
-        sh(["bash","-lc", f"systemctl disable --now 'auroragw-suricata@{ifn}.service' 2>/dev/null || true"], check=False)
+        if not is_safe_ifname(ifn):
+            continue
+        sh(["systemctl", "disable", "--now", f"auroragw-suricata@{ifn}.service"], check=False)
 
     if not enabled:
         return
 
     # IDS mode (passive sniff). Users can choose interfaces; avoid enabling on WAN by default for throughput.
     for ifn in ifnames:
-        sh(["bash","-lc", f"ip link show '{ifn}' >/dev/null 2>&1 || true"], check=False)
-        sh(["bash","-lc", f"systemctl enable --now 'auroragw-suricata@{ifn}.service'"], check=False)
-        sh(["bash","-lc", f"systemctl restart 'auroragw-suricata@{ifn}.service'"], check=False)
+        if not is_safe_ifname(ifn):
+            continue
+        sh(["ip", "link", "show", ifn], check=False)
+        sh(["systemctl", "enable", "--now", f"auroragw-suricata@{ifn}.service"], check=False)
+        sh(["systemctl", "restart", f"auroragw-suricata@{ifn}.service"], check=False)
 
 def apply_cockpit(cfg):
     enabled = bool((cfg.get("services", {}) or {}).get("cockpit", {}).get("enabled", False))
     if enabled:
-        sh(["bash","-lc","systemctl enable --now cockpit.socket 2>/dev/null || systemctl enable --now cockpit || true"], check=False)
+        sh(["systemctl", "enable", "--now", "cockpit.socket"], check=False)
+        sh(["systemctl", "enable", "--now", "cockpit"], check=False)
     else:
-        sh(["bash","-lc","systemctl disable --now cockpit.socket cockpit 2>/dev/null || true"], check=False)
+        sh(["systemctl", "disable", "--now", "cockpit.socket"], check=False)
+        sh(["systemctl", "disable", "--now", "cockpit"], check=False)
 
 def apply_evebox(cfg):
     enabled = bool((cfg.get("services", {}) or {}).get("evebox", {}).get("enabled", False))
     if enabled:
-        sh(["bash","-lc","/opt/auroragw/scripts/fetch-evebox.sh || true"], check=False)
-        sh(["bash","-lc","systemctl enable --now auroragw-evebox.service 2>/dev/null || true"], check=False)
-        sh(["bash","-lc","systemctl restart auroragw-evebox.service 2>/dev/null || true"], check=False)
+        sh(["bash", "/opt/auroragw/scripts/fetch-evebox.sh"], check=False)
+        sh(["systemctl", "enable", "--now", "auroragw-evebox.service"], check=False)
+        sh(["systemctl", "restart", "auroragw-evebox.service"], check=False)
     else:
-        sh(["bash","-lc","systemctl disable --now auroragw-evebox.service 2>/dev/null || true"], check=False)
+        sh(["systemctl", "disable", "--now", "auroragw-evebox.service"], check=False)
 
 def apply_grafana(cfg):
     g = (cfg.get("services", {}) or {}).get("grafana", {}) or {}
@@ -433,14 +501,14 @@ def apply_grafana(cfg):
     local = enabled and mode == "local"
 
     if not local:
-        sh(["bash","-lc","systemctl disable --now auroragw-observability.service 2>/dev/null || true"], check=False)
+        sh(["systemctl", "disable", "--now", "auroragw-observability.service"], check=False)
         return
 
-    if sh(["bash","-lc","command -v docker >/dev/null 2>&1"], check=False).returncode != 0:
+    if sh(["docker", "--version"], check=False).returncode != 0:
         log("grafana local enabled but docker not installed (skipping start)")
         return
 
-    sh(["bash","-lc","systemctl enable --now docker 2>/dev/null || true"], check=False)
+    sh(["systemctl", "enable", "--now", "docker"], check=False)
 
     obs_dir = CFG_DIR / "observability"
     obs_dir.mkdir(parents=True, exist_ok=True)
@@ -474,8 +542,8 @@ def apply_grafana(cfg):
     if tpl.exists():
         (obs_dir / "prometheus.yml").write_text(tpl.read_text(encoding="utf-8"), encoding="utf-8")
 
-    sh(["bash","-lc","systemctl enable --now auroragw-observability.service 2>/dev/null || true"], check=False)
-    sh(["bash","-lc","systemctl restart auroragw-observability.service 2>/dev/null || true"], check=False)
+    sh(["systemctl", "enable", "--now", "auroragw-observability.service"], check=False)
+    sh(["systemctl", "restart", "auroragw-observability.service"], check=False)
 
 def apply_qos(cfg, ifs):
     qos = cfg.get("services", {}).get("qos", {}) or {}
@@ -488,7 +556,9 @@ def apply_qos(cfg, ifs):
         ifn = ifname_for(cfg, seg_id, ifs)
         rate = int(v.get("rate_kbit", 0))
         if rate > 0:
-            sh(["bash","-lc", f"tc qdisc replace dev {ifn} root cake bandwidth {rate}kbit diffserv4 nat"], check=False)
+            if not is_safe_ifname(ifn):
+                continue
+            sh(["tc", "qdisc", "replace", "dev", ifn, "root", "cake", "bandwidth", f"{rate}kbit", "diffserv4", "nat"], check=False)
 
     wanq = qos.get("wan", {}) or {}
     if not wanq.get("enabled", False):
@@ -504,7 +574,8 @@ def apply_qos(cfg, ifs):
         return
     script = BASE / "scripts/qos-apply.sh"
     if script.exists():
-        sh(["bash","-lc", f"{script} {wan_phy} pppoe0 {egress} {ingress} {overhead} {mpu}"], check=False)
+        if is_safe_ifname(wan_phy):
+            sh(["bash", str(script), wan_phy, "pppoe0", str(egress), str(ingress), str(overhead), str(mpu)], check=False)
 
 def install_units():
     unit_dir = BASE / "systemd"
@@ -533,17 +604,21 @@ def rollback_from(backup_dir: Path):
             dest = Path("/") / rel
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(p, dest)
-    sh(["bash","-lc","systemctl daemon-reload || true"], check=False)
-    sh(["bash","-lc","systemctl restart nftables 2>/dev/null || true"], check=False)
+    sh(["systemctl", "daemon-reload"], check=False)
+    sh(["systemctl", "restart", "nftables"], check=False)
 
 def health_check(cfg, ifs):
     lan_if = ifname_for(cfg,"lan",ifs)
-    lan_ok = sh(["bash","-lc", f"ip -4 -br addr show dev {lan_if} | awk '{{print $3}}' | grep -q /"], check=False).returncode == 0
-    nft_ok = sh(["bash","-lc","systemctl is-active --quiet nftables"], check=False).returncode == 0
-    web_ok = sh(["bash","-lc","systemctl is-active --quiet auroragw-web"], check=False).returncode == 0
+    lan_ok = False
+    if is_safe_ifname(lan_if):
+        r = sh(["ip", "-4", "-br", "addr", "show", "dev", lan_if], check=False)
+        # Example: "eth1             UP             192.168.101.1/24"
+        lan_ok = "/" in (r.stdout or "")
+    nft_ok = sh(["systemctl", "is-active", "--quiet", "nftables"], check=False).returncode == 0
+    web_ok = sh(["systemctl", "is-active", "--quiet", "auroragw-web"], check=False).returncode == 0
     ppp_ok = True
     if cfg["wan"]["mode"] == "pppoe":
-        ppp_ok = sh(["bash","-lc","ip link show pppoe0 >/dev/null 2>&1"], check=False).returncode == 0
+        ppp_ok = sh(["ip", "link", "show", "pppoe0"], check=False).returncode == 0
     return lan_ok and nft_ok and web_ok and ppp_ok
 
 def write_pending(backup_dir: Path, timeout: int):

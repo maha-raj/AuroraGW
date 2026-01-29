@@ -342,9 +342,21 @@ def render_unbound_base(cfg, ifs):
                     continue
     addrs = [ip.split('/')[0] for ip in ips if ip]
     listen = "\n".join([f"  interface: {a}" for a in addrs]) if addrs else "  interface: 0.0.0.0"
+    allow_nets = []
+    for seg in cfg.get("segments", []):
+        if seg.get("ifref") not in ("lan","opt1"):
+            continue
+        try:
+            net = str(ipaddress.ip_interface(seg["address"]).network)
+            allow_nets.append(net)
+        except Exception:
+            continue
+    allow_nets.append("127.0.0.0/8")
+    access = "\n".join([f"  access-control: {n} allow" for n in list(dict.fromkeys(allow_nets))])
     return f'''server:
   verbosity: 1
 {listen}
+{access}
   port: 53
   do-ip6: no
   hide-identity: yes

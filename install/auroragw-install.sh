@@ -28,6 +28,9 @@ echo "Interfaces:"
 ip -br link || true
 echo
 
+tty_can_write() { [[ -w /dev/tty ]]; }
+tty_print() { tty_can_write && printf "%b" "$*" > /dev/tty || true; }
+
 trap 'rc=$?; echo "ERROR: installer failed (rc=$rc) near line $LINENO. See: '"$LOG_FILE"'"; exit $rc' ERR
 
 apt_install_one_of() {
@@ -395,6 +398,13 @@ systemctl enable --now auroragw-health.timer || true
 auroragd validate /etc/auroragw/config.staging.yaml
 auroragd apply --require-confirm --timeout 120 --commit /etc/auroragw/config.staging.yaml
 
-echo "Install complete."
+echo
+echo "Installation Complete."
 echo "Web UI: https://$(echo "$LAN_ADDR" | cut -d/ -f1):8443/ (user: admin)"
 echo "Confirm within 120s: UI -> Confirm, or: sudo auroragd confirm"
+echo
+
+# Pretty, human-friendly message (printed to interactive tty; logs remain plain).
+tty_print "\n\033[1;32m== Installation Complete ==\033[0m\n"
+tty_print "Web UI: \033[1;36mhttps://$(echo "$LAN_ADDR" | cut -d/ -f1):8443/\033[0m (user: admin)\n"
+tty_print "Confirm within 120s: UI -> Confirm, or: sudo auroragd confirm\n\n"

@@ -27,6 +27,14 @@ After install:
 - Web UI: `https://<LAN-IP>:8443/` (self-signed)
 - Optional Cockpit (if enabled): `https://<LAN-IP>:9090/`
 
+If install fails during virtualenv creation with an `ensurepip is not available` message, install the venv package and re-run:
+```bash
+sudo apt-get update
+sudo apt-get install -y python3-venv || true
+sudo apt-get install -y "python$(python3 -c 'import sys; print(f\"{sys.version_info.major}.{sys.version_info.minor}\")')-venv" || true
+sudo ./install/auroragw-install.sh
+```
+
 ## 2) Reconfigure later
 
 ```bash

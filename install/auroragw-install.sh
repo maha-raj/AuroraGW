@@ -10,20 +10,33 @@ export DEBIAN_FRONTEND=noninteractive
 
 if [[ $RECONFIGURE -eq 0 ]]; then
   apt-get update
+
+  # Core packages (fail loudly if these can't be installed).
   apt-get install -y --no-install-recommends \
-    curl ca-certificates jq \
+    ca-certificates curl jq \
     nftables iproute2 iputils-ping tcpdump ethtool \
     ppp rp-pppoe \
     python3 python3-venv python3-pip python3-yaml python3-jsonschema \
-  isc-kea unbound \
-  miniupnpd-nftables \
-  cockpit \
-  unzip \
-  python3-netifaces \
-  speedtest-cli \
-  docker.io docker-compose-plugin \
-  || true
-  apt-get install -y --no-install-recommends suricata openssl whiptail rsync || true
+    isc-kea unbound \
+    miniupnpd-nftables \
+    openssl rsync unzip
+
+  # Optional packages (best-effort; availability varies by distro/repo).
+  apt-get install -y --no-install-recommends \
+    whiptail cockpit \
+    suricata \
+    python3-netifaces \
+    speedtest-cli \
+    docker.io docker-compose-plugin \
+    || true
+
+  # Some distros need a version-specific venv package (ex: python3.13-venv).
+  if ! python3 -c "import ensurepip" >/dev/null 2>&1; then
+    PY_MM="$(python3 -c 'import sys; print(f\"{sys.version_info.major}.{sys.version_info.minor}\")' 2>/dev/null || true)"
+    if [[ -n "$PY_MM" ]]; then
+      apt-get install -y --no-install-recommends "python${PY_MM}-venv" || true
+    fi
+  fi
 else
   echo "== Reconfigure mode: skipping apt install =="
 fi

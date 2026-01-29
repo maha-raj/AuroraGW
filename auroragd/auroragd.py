@@ -368,11 +368,21 @@ def render_kea_dhcp4(cfg, ifs):
     import ipaddress
     upstream = upstream_dns_servers(cfg)
     subs=[]
+    extra_id = 10
     for seg in cfg.get("segments", []):
         dh = (seg.get("dhcp") or {})
         if not dh.get("enabled", False):
             continue
         iface = ifname_for(cfg, seg["ifref"], ifs)
+        seg_id = str(seg.get("id") or "").strip().lower()
+        # Kea (2.6+) requires numeric subnet IDs.
+        if seg_id == "lan":
+            subnet_id = 1
+        elif seg_id == "opt1":
+            subnet_id = 2
+        else:
+            subnet_id = extra_id
+            extra_id += 1
         subnet = str(ipaddress.ip_interface(seg["address"]).network)
         rs = dh.get("range_start"); re = dh.get("range_end")
         if not (rs and re):
@@ -410,6 +420,7 @@ def render_kea_dhcp4(cfg, ifs):
         else:
             dns_data = router_ip
         subs.append({
+            "id": subnet_id,
             "subnet": subnet,
             "interface": iface,
             "pools": [{"pool": f"{rs} - {re}"}],

@@ -366,6 +366,19 @@ def render_kea_dhcp4(cfg, ifs):
         rs = dh.get("range_start"); re = dh.get("range_end")
         if not (rs and re):
             continue
+        # Validate pool belongs to subnet (Kea will refuse to start otherwise).
+        net = ipaddress.ip_interface(seg["address"]).network
+        try:
+            rs_ip = ipaddress.ip_address(str(rs).strip())
+            re_ip = ipaddress.ip_address(str(re).strip())
+        except Exception as e:
+            raise RuntimeError(f"Invalid DHCP range for segment {seg.get('id','?')}: {rs} - {re} ({e})")
+        if rs_ip not in net or re_ip not in net:
+            raise RuntimeError(
+                f"DHCP range for segment {seg.get('id','?')} must be inside {net}: {rs_ip} - {re_ip}"
+            )
+        if int(rs_ip) > int(re_ip):
+            raise RuntimeError(f"DHCP range start must be <= end for segment {seg.get('id','?')}: {rs_ip} - {re_ip}")
         router_ip = str(ipaddress.ip_interface(seg["address"]).ip)
         dns_mode = ((dh.get("dns") or {}).get("mode") or "router").strip().lower()
         dns_servers = (dh.get("dns") or {}).get("servers") or []
@@ -619,7 +632,18 @@ def health_check(cfg, ifs):
     ppp_ok = True
     if cfg["wan"]["mode"] == "pppoe":
         ppp_ok = sh(["ip", "link", "show", "pppoe0"], check=False).returncode == 0
-    return lan_ok and nft_ok and web_ok and ppp_ok
+
+    dhcp = (cfg.get("services", {}).get("dhcp", {}) or {})
+    dhcp_ok = True
+    if dhcp.get("enabled", True) and dhcp.get("provider", "kea") == "kea":
+        dhcp_ok = sh(["systemctl", "is-active", "--quiet", "kea-dhcp4-server"], check=False).returncode == 0
+
+    dns = (cfg.get("services", {}).get("dns", {}) or {})
+    dns_ok = True
+    if dns.get("enabled", True) and dns.get("provider", "unbound") == "unbound":
+        dns_ok = sh(["systemctl", "is-active", "--quiet", "unbound"], check=False).returncode == 0
+
+    return lan_ok and nft_ok and web_ok and ppp_ok and dhcp_ok and dns_ok
 
 def write_pending(backup_dir: Path, timeout: int):
     PENDING.parent.mkdir(parents=True, exist_ok=True)
@@ -696,6 +720,8 @@ def cmd_apply(path: str, commit: bool, require_confirm: bool, timeout: int):
         if dhcp.get("enabled", True) and dhcp.get("provider","kea") == "kea":
             Path("/etc/kea").mkdir(parents=True, exist_ok=True)
             Path("/etc/kea/kea-dhcp4.conf").write_text(render_kea_dhcp4(cfg, ifs), encoding="utf-8")
+            if sh(["kea-dhcp4", "-t", "/etc/kea/kea-dhcp4.conf"], check=False).returncode != 0:
+                raise RuntimeError("Kea config test failed (kea-dhcp4 -t /etc/kea/kea-dhcp4.conf).")
             sh(["systemctl","enable","--now","kea-dhcp4-server"], check=False)
             sh(["systemctl","restart","kea-dhcp4-server"], check=False)
 
@@ -705,6 +731,8 @@ def cmd_apply(path: str, commit: bool, require_confirm: bool, timeout: int):
             Path("/etc/unbound/unbound.conf.d/auroragw-forwarders.conf").write_text(
                 render_unbound_forwarders(upstream_dns_servers(cfg)), encoding="utf-8"
             )
+            if sh(["unbound-checkconf"], check=False).returncode != 0:
+                raise RuntimeError("Unbound config check failed (unbound-checkconf).")
             sh(["systemctl","enable","--now","unbound"], check=False)
             sh(["systemctl","restart","unbound"], check=False)
 
@@ -756,6 +784,7 @@ WantedBy=multi-user.target
 
         sh(["systemctl","enable","--now","auroragw-health.timer"], check=False)
 
+        time.sleep(1)
         if not health_check(cfg, ifs):
             raise RuntimeError("Health check failed after apply.")
     except Exception:

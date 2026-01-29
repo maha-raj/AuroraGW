@@ -14,8 +14,10 @@ LOG_DIR="/var/log/auroragw"
 TS="$(date +%Y%m%d-%H%M%S)"
 LOG_FILE="${LOG_DIR}/install-${TS}.log"
 mkdir -p "$LOG_DIR"
+UMASK_OLD="$(umask)"
 umask 077
 touch "$LOG_FILE"
+umask "$UMASK_OLD"
 chmod 600 "$LOG_FILE" || true
 exec > >(tee -a "$LOG_FILE") 2>&1
 echo "== AuroraGW installer started: $(date -Is) =="

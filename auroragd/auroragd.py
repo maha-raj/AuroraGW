@@ -32,6 +32,17 @@ def log(msg: str):
 def warn(msg: str):
     log(f"WARN {msg}")
 
+def _path_meta(p: Path) -> str:
+    try:
+        st = p.stat()
+        return f"{p} mode={oct(st.st_mode & 0o777)} uid={st.st_uid} gid={st.st_gid}"
+    except FileNotFoundError:
+        return f"{p} (missing)"
+    except PermissionError:
+        return f"{p} (stat permission denied)"
+    except Exception as e:
+        return f"{p} (stat error: {e})"
+
 def load_cfg(path: Path):
     return yaml.safe_load(path.read_text(encoding="utf-8"))
 
@@ -719,11 +730,22 @@ def cmd_apply(path: str, commit: bool, require_confirm: bool, timeout: int):
 
         if dhcp.get("enabled", True) and dhcp.get("provider","kea") == "kea":
             Path("/etc/kea").mkdir(parents=True, exist_ok=True)
-            Path("/etc/kea/kea-dhcp4.conf").write_text(render_kea_dhcp4(cfg, ifs), encoding="utf-8")
+            try:
+                os.chmod("/etc/kea", 0o755)
+            except Exception:
+                pass
+            kea_conf = Path("/etc/kea/kea-dhcp4.conf")
+            kea_conf.write_text(render_kea_dhcp4(cfg, ifs), encoding="utf-8")
+            try:
+                os.chmod(kea_conf, 0o644)
+            except Exception:
+                pass
             test = sh(["kea-dhcp4", "-t", "/etc/kea/kea-dhcp4.conf"], check=False)
             if test.returncode != 0:
                 raise RuntimeError(
                     "Kea config test failed (kea-dhcp4 -t /etc/kea/kea-dhcp4.conf).\n"
+                    f"config file: {_path_meta(Path('/etc/kea/kea-dhcp4.conf'))}\n"
+                    f"config dir:  {_path_meta(Path('/etc/kea'))}\n"
                     f"stdout:\n{test.stdout}\n"
                     f"stderr:\n{test.stderr}\n"
                 )
@@ -732,10 +754,25 @@ def cmd_apply(path: str, commit: bool, require_confirm: bool, timeout: int):
 
         if dns.get("enabled", True) and dns.get("provider","unbound") == "unbound":
             Path("/etc/unbound/unbound.conf.d").mkdir(parents=True, exist_ok=True)
-            Path("/etc/unbound/unbound.conf.d/auroragw.conf").write_text(render_unbound_base(cfg, ifs), encoding="utf-8")
-            Path("/etc/unbound/unbound.conf.d/auroragw-forwarders.conf").write_text(
+            try:
+                os.chmod("/etc/unbound", 0o755)
+            except Exception:
+                pass
+            try:
+                os.chmod("/etc/unbound/unbound.conf.d", 0o755)
+            except Exception:
+                pass
+            ub_base = Path("/etc/unbound/unbound.conf.d/auroragw.conf")
+            ub_fwd = Path("/etc/unbound/unbound.conf.d/auroragw-forwarders.conf")
+            ub_base.write_text(render_unbound_base(cfg, ifs), encoding="utf-8")
+            ub_fwd.write_text(
                 render_unbound_forwarders(upstream_dns_servers(cfg)), encoding="utf-8"
             )
+            for p in (ub_base, ub_fwd):
+                try:
+                    os.chmod(p, 0o644)
+                except Exception:
+                    pass
             utest = sh(["unbound-checkconf"], check=False)
             if utest.returncode != 0:
                 raise RuntimeError(
@@ -750,7 +787,12 @@ def cmd_apply(path: str, commit: bool, require_confirm: bool, timeout: int):
         upnp_conf = render_miniupnpd(cfg, ifs)
         if upnp_conf:
             Path("/etc/miniupnpd").mkdir(parents=True, exist_ok=True)
-            Path("/etc/miniupnpd/miniupnpd.conf").write_text(upnp_conf, encoding="utf-8")
+            upnp_path = Path("/etc/miniupnpd/miniupnpd.conf")
+            upnp_path.write_text(upnp_conf, encoding="utf-8")
+            try:
+                os.chmod(upnp_path, 0o644)
+            except Exception:
+                pass
             sh(["systemctl","enable","--now","miniupnpd"], check=False)
             sh(["systemctl","restart","miniupnpd"], check=False)
         else:

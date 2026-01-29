@@ -33,10 +33,12 @@ echo "Downloading EveBox ${VERSION} (${arch})..."
 curl -fsSL "$url" -o "$tmp/evebox.zip"
 unzip -q "$tmp/evebox.zip" -d "$tmp/out"
 
-if [[ ! -f "$tmp/out/evebox" ]]; then
-  echo "evebox binary not found in zip"
+bin="$(find "$tmp/out" -maxdepth 3 -type f -name evebox -print -quit)"
+if [[ -z "${bin:-}" || ! -f "$bin" ]]; then
+  echo "evebox binary not found in zip (unexpected contents)"
+  unzip -l "$tmp/evebox.zip" | head -n 80 || true
   exit 1
 fi
 
-install -m 0755 "$tmp/out/evebox" "$DEST"
+install -m 0755 "$bin" "$DEST"
 echo "Installed: $DEST"

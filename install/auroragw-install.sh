@@ -344,8 +344,23 @@ firewall:
 EOF
 
 bash /opt/auroragw/discovery/fetch_multicast_relay.sh || true
-bash /opt/auroragw/scripts/fetch-evebox.sh || true
-ln -sf /opt/auroragw/auroragd/auroragd.py /usr/local/sbin/auroragd
+if [[ ${SURICATA_ENABLE:-0} -eq 1 ]]; then
+  bash /opt/auroragw/scripts/fetch-evebox.sh || true
+fi
+
+# Ensure scripts are runnable even if checked out on a filesystem that drops exec bits.
+chmod 755 /opt/auroragw/web/run.sh 2>/dev/null || true
+chmod 755 /opt/auroragw/auroragd/auroragd.py 2>/dev/null || true
+chmod 755 /opt/auroragw/scripts/*.sh 2>/dev/null || true
+chmod 755 /opt/auroragw/discovery/*.sh 2>/dev/null || true
+
+# Install an auroragd wrapper to avoid relying on exec permissions/noexec on /opt.
+cat > /usr/local/sbin/auroragd <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+exec python3 /opt/auroragw/auroragd/auroragd.py "$@"
+EOF
+chmod 755 /usr/local/sbin/auroragd
 
 cp -f /opt/auroragw/systemd/* /etc/systemd/system/ || true
 systemctl daemon-reload

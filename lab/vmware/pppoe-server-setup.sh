@@ -6,8 +6,73 @@ set -euo pipefail
 # - NIC1: WAN-LAB (to AuroraGW WAN NIC)
 # - NIC2: NAT/Internet (uplink)
 
-WANLAB_IF="${WANLAB_IF:-eth0}"
-UPLINK_IF="${UPLINK_IF:-eth1}"
+WANLAB_IF="${WANLAB_IF-}"
+UPLINK_IF="${UPLINK_IF-}"
+
+have_iface() {
+  ip link show dev "$1" >/dev/null 2>&1
+}
+
+list_ifaces() {
+  ip -o link show | awk -F': ' '{print $2}' | grep -v '^lo$' || true
+}
+
+default_route_iface() {
+  ip -o route show default 2>/dev/null | awk '{for(i=1;i<=NF;i++) if ($i=="dev"){print $(i+1); exit}}' || true
+}
+
+WANLAB_IF_WAS_SET=0
+UPLINK_IF_WAS_SET=0
+[[ -n "${WANLAB_IF}" ]] && WANLAB_IF_WAS_SET=1
+[[ -n "${UPLINK_IF}" ]] && UPLINK_IF_WAS_SET=1
+
+if [[ $UPLINK_IF_WAS_SET -eq 0 ]]; then
+  UPLINK_IF="$(default_route_iface)"
+fi
+if [[ -z "${UPLINK_IF}" ]]; then
+  UPLINK_IF="eth1"
+fi
+if [[ $WANLAB_IF_WAS_SET -eq 0 ]]; then
+  WANLAB_IF="eth0"
+fi
+
+if [[ $UPLINK_IF_WAS_SET -eq 1 ]] && ! have_iface "$UPLINK_IF"; then
+  echo "ERROR: UPLINK_IF='${UPLINK_IF}' not found. Available interfaces:" >&2
+  list_ifaces >&2
+  echo "Fix: set UPLINK_IF to your Internet/NAT NIC (usually the one with the default route)." >&2
+  exit 2
+fi
+if [[ $WANLAB_IF_WAS_SET -eq 1 ]] && ! have_iface "$WANLAB_IF"; then
+  echo "ERROR: WANLAB_IF='${WANLAB_IF}' not found. Available interfaces:" >&2
+  list_ifaces >&2
+  echo "Fix: set WANLAB_IF to your WAN-LAB NIC." >&2
+  exit 2
+fi
+
+if ! have_iface "$UPLINK_IF"; then
+  guess="$(default_route_iface)"
+  if [[ -n "$guess" ]] && have_iface "$guess"; then
+    UPLINK_IF="$guess"
+  fi
+fi
+if ! have_iface "$WANLAB_IF"; then
+  while read -r ifn; do
+    [[ -z "$ifn" ]] && continue
+    if [[ "$ifn" != "$UPLINK_IF" ]]; then
+      WANLAB_IF="$ifn"
+      break
+    fi
+  done < <(list_ifaces)
+fi
+
+if ! have_iface "$WANLAB_IF" || ! have_iface "$UPLINK_IF" || [[ "$WANLAB_IF" == "$UPLINK_IF" ]]; then
+  echo "ERROR: could not determine WANLAB_IF/UPLINK_IF." >&2
+  echo "Detected interfaces:" >&2
+  list_ifaces >&2
+  echo "Suggested:" >&2
+  echo "  WANLAB_IF=<wanlab-nic> UPLINK_IF=<nat-nic> sudo ./pppoe-server-setup.sh" >&2
+  exit 2
+fi
 
 PPPOE_USER="${PPPOE_USER:-testuser}"
 PPPOE_PASS="${PPPOE_PASS:-testpass}"
@@ -35,8 +100,18 @@ ms-dns 9.9.9.9
 EOF
 
 # Allow both CHAP and PAP (client uses CHAP in AuroraGW).
-sudo bash -lc "grep -q '^\"${PPPOE_USER}\"' /etc/ppp/chap-secrets 2>/dev/null || echo '\"${PPPOE_USER}\" * \"${PPPOE_PASS}\" *' >> /etc/ppp/chap-secrets"
-sudo bash -lc "grep -q '^\"${PPPOE_USER}\"' /etc/ppp/pap-secrets 2>/dev/null || echo '\"${PPPOE_USER}\" * \"${PPPOE_PASS}\" *' >> /etc/ppp/pap-secrets"
+sudo python3 - <<PY
+from pathlib import Path
+user = ${PPPOE_USER@Q}
+pw = ${PPPOE_PASS@Q}
+line = f'"{user}" * "{pw}" *'
+for p in (Path("/etc/ppp/chap-secrets"), Path("/etc/ppp/pap-secrets")):
+    p.parent.mkdir(parents=True, exist_ok=True)
+    text = p.read_text(encoding="utf-8") if p.exists() else ""
+    if any(l.startswith(f'"{user}"') for l in text.splitlines()):
+        continue
+    p.write_text(text + line + "\n", encoding="utf-8")
+PY
 sudo chmod 600 /etc/ppp/chap-secrets /etc/ppp/pap-secrets || true
 
 echo "net.ipv4.ip_forward=1" | sudo tee /etc/sysctl.d/99-pppoe-server.conf >/dev/null

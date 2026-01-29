@@ -52,6 +52,17 @@ cd AuroraGW/lab/vmware
 sudo ./isp-sim-setup.sh
 ```
 
+If you see `Cannot find device "eth0"` (or similar), your VM’s interface names are probably `ens33`/`ens34` (common on VMware).
+Check your NIC names:
+```bash
+ip -br link
+ip route show default
+```
+Then run with explicit interfaces:
+```bash
+WAN_IF=<wanlab-nic> UPLINK_IF=<nat-nic> sudo ./isp-sim-setup.sh
+```
+
 Result:
 - WAN-LAB gateway: `10.0.2.1/24`
 - DHCP on WAN-LAB gives AuroraGW WAN an IP like `10.0.2.x`

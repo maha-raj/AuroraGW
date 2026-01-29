@@ -33,6 +33,54 @@ tty_print() { tty_can_write && printf "%b" "$*" > /dev/tty || true; }
 
 trap 'rc=$?; echo "ERROR: installer failed (rc=$rc) near line $LINENO. See: '"$LOG_FILE"'"; exit $rc' ERR
 
+prompt_admin_pass_whiptail() {
+  local current="$1"
+  while true; do
+    local p1 p2
+    p1="$(whiptail --passwordbox "Set admin password for Web UI (user: admin)\n\nLeave blank to keep current." 12 78 "" 3>&1 1>&2 2>&3)"
+    local rc=$?
+    if [[ $rc -ne 0 ]]; then
+      echo "Installer cancelled."
+      exit 2
+    fi
+    if [[ -z "$p1" ]]; then
+      echo "$current"
+      return
+    fi
+    p2="$(whiptail --passwordbox "Confirm admin password" 10 78 "" 3>&1 1>&2 2>&3)"
+    rc=$?
+    if [[ $rc -ne 0 ]]; then
+      echo "Installer cancelled."
+      exit 2
+    fi
+    if [[ "$p1" != "$p2" ]]; then
+      whiptail --msgbox "Passwords do not match. Please try again." 10 60
+      continue
+    fi
+    echo "$p1"
+    return
+  done
+}
+
+prompt_admin_pass_plain() {
+  local current="$1"
+  while true; do
+    local p1 p2
+    read -r -s -p "Admin password (user: admin) [leave blank to keep current]: " p1; echo
+    if [[ -z "$p1" ]]; then
+      echo "$current"
+      return
+    fi
+    read -r -s -p "Confirm admin password: " p2; echo
+    if [[ "$p1" != "$p2" ]]; then
+      echo "Passwords do not match. Try again." >&2
+      continue
+    fi
+    echo "$p1"
+    return
+  done
+}
+
 apt_install_one_of() {
   # Usage: apt_install_one_of "human label" pkg1 pkg2 ...
   local label="$1"; shift
@@ -238,10 +286,10 @@ OPT1_MAC="$(iface_mac "$OPT1_IF")"
 if [[ "$UI" == "whiptail" ]]; then
   if [[ $RECONFIGURE -eq 1 ]]; then
     if whiptail --yesno "Change admin password for Web UI?" 10 78; then
-      ADMIN_PASS=$(whiptail --passwordbox "Set admin password for Web UI (user: admin)" 10 78 "" 3>&1 1>&2 2>&3)
+      ADMIN_PASS="$(prompt_admin_pass_whiptail "$ADMIN_PASS")"
     fi
   else
-    ADMIN_PASS=$(whiptail --passwordbox "Set admin password for Web UI (user: admin)" 10 78 "" 3>&1 1>&2 2>&3)
+    ADMIN_PASS="$(prompt_admin_pass_whiptail "$ADMIN_PASS")"
   fi
   LAN_ADDR=$(whiptail --inputbox "LAN address/CIDR" 10 78 "$LAN_ADDR" 3>&1 1>&2 2>&3)
   OPT1_ADDR=$(whiptail --inputbox "OPT1 address/CIDR" 10 78 "$OPT1_ADDR" 3>&1 1>&2 2>&3)
@@ -257,7 +305,7 @@ if [[ "$UI" == "whiptail" ]]; then
     "basic" "Low-rate sampling (recommended)" \
     "advanced" "Higher-rate sampling + history (troubleshooting)" 3>&1 1>&2 2>&3) || MONITOR_MODE="basic"
 else
-  read -r -s -p "Admin password (user: admin) [default admin]: " x; echo; [[ -n "${x:-}" ]] && ADMIN_PASS="$x"
+  ADMIN_PASS="$(prompt_admin_pass_plain "$ADMIN_PASS")"
 fi
 
 PPPOE_USER=""; PPPOE_PASS=""

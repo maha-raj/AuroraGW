@@ -31,23 +31,97 @@ fi
 UI=plain
 command -v whiptail >/dev/null 2>&1 && UI=whiptail
 
+have_iface() {
+  [[ -n "${1:-}" ]] && [[ -e "/sys/class/net/$1/address" ]]
+}
+
+iface_mac() {
+  cat "/sys/class/net/$1/address" 2>/dev/null || true
+}
+
+iface_state() {
+  cat "/sys/class/net/$1/operstate" 2>/dev/null || echo "unknown"
+}
+
+iface_speed() {
+  local s
+  s="$(cat "/sys/class/net/$1/speed" 2>/dev/null || true)"
+  [[ -n "$s" && "$s" != "-1" ]] && echo "${s}Mb" || echo "?Mb"
+}
+
+default_route_iface() {
+  ip -o route show default 2>/dev/null | awk '{for(i=1;i<=NF;i++) if ($i=="dev"){print $(i+1); exit}}' || true
+}
+
+list_ifaces() {
+  ip -o link show | awk -F': ' '{print $2}' | grep -v '^lo$' || true
+}
+
 list_nics() {
-  ip -o link | awk -F': ' '{print $2}' | while read -r ifn; do
-    mac=$(cat /sys/class/net/"$ifn"/address 2>/dev/null || true)
-    [[ -n "$mac" ]] && echo "$ifn $mac"
+  list_ifaces | while read -r ifn; do
+    [[ -z "$ifn" ]] && continue
+    mac="$(iface_mac "$ifn")"
+    [[ -z "$mac" ]] && continue
+    echo "$ifn $mac $(iface_state "$ifn") $(iface_speed "$ifn")"
   done
 }
 
-pick_mac() {
+pick_iface() {
   local title="$1"
+  local default_if="$2"
+
   if [[ "$UI" == "whiptail" ]]; then
     local opts=()
-    while read -r ifn mac; do opts+=("$mac" "$ifn"); done < <(list_nics)
-    whiptail --title "$title" --menu "$title (select by MAC)" 20 78 10 "${opts[@]}" 3>&1 1>&2 2>&3
-  else
-    echo "$title"; list_nics
-    read -r -p "Enter MAC for $title: " mac; echo "$mac"
+    while read -r ifn mac st spd; do
+      opts+=("$ifn" "${mac}  ${st}  ${spd}")
+    done < <(list_nics)
+    if [[ -n "${default_if:-}" ]]; then
+      whiptail --title "$title" --default-item "${default_if}" --menu "$title (select interface)" 20 78 10 "${opts[@]}" 3>&1 1>&2 2>&3
+    else
+      whiptail --title "$title" --menu "$title (select interface)" 20 78 10 "${opts[@]}" 3>&1 1>&2 2>&3
+    fi
+    return
   fi
+
+  echo "== $title =="
+  echo "Available interfaces:"
+  local i=1
+  local ifs=()
+  while read -r ifn mac st spd; do
+    ifs+=("$ifn")
+    printf "  [%d] %s  %s  %s  %s\n" "$i" "$ifn" "$mac" "$st" "$spd"
+    i=$((i+1))
+  done < <(list_nics)
+
+  if [[ "${#ifs[@]}" -eq 0 ]]; then
+    echo "ERROR: no interfaces detected." >&2
+    exit 2
+  fi
+
+  local prompt="Select interface"
+  [[ -n "${default_if:-}" ]] && prompt="$prompt [default $default_if]"
+  prompt="$prompt (number or name): "
+
+  while true; do
+    read -r -p "$prompt" ans
+    ans="${ans:-}"
+    if [[ -z "$ans" && -n "${default_if:-}" && "$(have_iface "$default_if" && echo ok || true)" == "ok" ]]; then
+      echo "$default_if"
+      return
+    fi
+    if [[ "$ans" =~ ^[0-9]+$ ]]; then
+      local idx=$((ans-1))
+      if [[ $idx -ge 0 && $idx -lt ${#ifs[@]} ]]; then
+        echo "${ifs[$idx]}"
+        return
+      fi
+    fi
+    if have_iface "$ans"; then
+      echo "$ans"
+      return
+    fi
+    echo "Invalid selection. Try again." >&2
+  done
 }
 
 ADMIN_PASS="admin"
@@ -64,9 +138,20 @@ SURICATA_ENABLE=0
 COCKPIT_ENABLE=0
 MONITOR_MODE="basic"
 
-WAN_MAC=$(pick_mac "WAN interface")
-LAN_MAC=$(pick_mac "LAN interface")
-OPT1_MAC=$(pick_mac "OPT1 interface")
+DEF_WAN_IF="$(default_route_iface)"
+WAN_IF="$(pick_iface "WAN interface (to ISP / WAN-LAB)" "${DEF_WAN_IF}")"
+LAN_IF="$(pick_iface "LAN interface" "")"
+OPT1_IF="$(pick_iface "OPT1 interface" "")"
+
+if [[ "$WAN_IF" == "$LAN_IF" || "$WAN_IF" == "$OPT1_IF" || "$LAN_IF" == "$OPT1_IF" ]]; then
+  echo "ERROR: WAN/LAN/OPT1 must be different interfaces." >&2
+  echo "Selected: WAN=$WAN_IF LAN=$LAN_IF OPT1=$OPT1_IF" >&2
+  exit 2
+fi
+
+WAN_MAC="$(iface_mac "$WAN_IF")"
+LAN_MAC="$(iface_mac "$LAN_IF")"
+OPT1_MAC="$(iface_mac "$OPT1_IF")"
 
 if [[ "$UI" == "whiptail" ]]; then
   if [[ $RECONFIGURE -eq 1 ]]; then

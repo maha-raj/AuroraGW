@@ -18,7 +18,7 @@ sudo ./install/auroragw-install.sh
 ```
 
 Installer prompts:
-- Select NICs by **MAC** for `wan/lan/opt1`
+- Select NICs from the detected interface list for `wan/lan/opt1` (the config stores MACs for portability)
 - Choose WAN mode: `dhcp` (bootstrap) or `pppoe`
 - Enable/disable: UPnP on OPT1, discovery relay (mDNS+SSDP), Suricata IDS, Cockpit
 

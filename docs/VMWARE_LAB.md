@@ -78,6 +78,7 @@ sudo ./install/auroragw-install.sh
 ```
 
 During install:
+- Select the **WAN/LAN/OPT1 interfaces** from the detected NIC list (the config still uses MAC binding for portability).
 - Set WAN mode = `dhcp`
 - Keep LAN = `192.168.101.1/24`
 - Keep OPT1 = `192.168.102.1/24`

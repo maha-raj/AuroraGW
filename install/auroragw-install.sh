@@ -45,7 +45,8 @@ iface_state() {
 
 iface_speed() {
   local s
-  s="$(cat "/sys/class/net/$1/speed" 2>/dev/null || true)"
+  # Some virtual drivers can block or be slow reading speed; keep this best-effort and fast.
+  s="$(timeout 0.2s cat "/sys/class/net/$1/speed" 2>/dev/null || true)"
   [[ -n "$s" && "$s" != "-1" ]] && echo "${s}Mb" || echo "?Mb"
 }
 
@@ -62,6 +63,7 @@ list_nics() {
     [[ -z "$ifn" ]] && continue
     mac="$(iface_mac "$ifn")"
     [[ -z "$mac" ]] && continue
+    # Keep this lightweight; speed is nice but can be slow on some drivers.
     echo "$ifn $mac $(iface_state "$ifn") $(iface_speed "$ifn")"
   done
 }
@@ -75,12 +77,24 @@ pick_iface() {
     while read -r ifn mac st spd; do
       opts+=("$ifn" "${mac}  ${st}  ${spd}")
     done < <(list_nics)
-    if [[ -n "${default_if:-}" ]]; then
-      whiptail --title "$title" --default-item "${default_if}" --menu "$title (select interface)" 20 78 10 "${opts[@]}" 3>&1 1>&2 2>&3
-    else
-      whiptail --title "$title" --menu "$title (select interface)" 20 78 10 "${opts[@]}" 3>&1 1>&2 2>&3
-    fi
-    return
+
+    while true; do
+      local choice=""
+      if [[ -n "${default_if:-}" ]]; then
+        choice="$(whiptail --title "$title" --ok-button "Select" --cancel-button "Exit" --default-item "${default_if}" --menu "$title (use arrows + Enter)" 20 78 10 "${opts[@]}" 3>&1 1>&2 2>&3)" || true
+      else
+        choice="$(whiptail --title "$title" --ok-button "Select" --cancel-button "Exit" --menu "$title (use arrows + Enter)" 20 78 10 "${opts[@]}" 3>&1 1>&2 2>&3)" || true
+      fi
+
+      if have_iface "$choice"; then
+        echo "$choice"
+        return 0
+      fi
+
+      if whiptail --yesno "No interface selected. Do you want to exit the installer?" 10 78; then
+        exit 2
+      fi
+    done
   fi
 
   echo "== $title =="

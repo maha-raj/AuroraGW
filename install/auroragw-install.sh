@@ -355,6 +355,9 @@ chmod 755 /opt/auroragw/scripts/*.sh 2>/dev/null || true
 chmod 755 /opt/auroragw/discovery/*.sh 2>/dev/null || true
 
 # Install an auroragd wrapper to avoid relying on exec permissions/noexec on /opt.
+# Note: older installs created /usr/local/sbin/auroragd as a symlink to /opt/auroragw/auroragd/auroragd.py.
+# If we overwrite that symlink with a shell wrapper, we'd corrupt the Python file. Remove first.
+rm -f /usr/local/sbin/auroragd
 cat > /usr/local/sbin/auroragd <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail

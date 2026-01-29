@@ -6,7 +6,7 @@ TAG="${TAG:-1.3.1}"
 URL_A="https://raw.githubusercontent.com/alsmith/multicast-relay/${TAG}/multicast-relay.py"
 URL_B="https://raw.githubusercontent.com/alsmith/multicast-relay/v${TAG}/multicast-relay.py"
 mkdir -p "$DST_DIR"
-if ! curl -fsSL "$URL_A" -o "$DST"; then
+if ! curl -fsSL "$URL_A" -o "$DST" 2>/dev/null; then
   curl -fsSL "$URL_B" -o "$DST"
 fi
 chmod +x "$DST"

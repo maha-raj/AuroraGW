@@ -329,6 +329,42 @@ if [[ "$WAN_MODE" == "pppoe" ]]; then
   fi
 fi
 
+calc_dhcp_range() {
+  # Given an interface address/CIDR (ex: 192.168.101.1/24), print "start end" inside the subnet.
+  python3 - <<PY
+import ipaddress, sys
+addr = ${1@Q}
+iface = ipaddress.ip_interface(addr)
+net = iface.network
+first = int(net.network_address) + 1
+last = int(net.broadcast_address) - 1
+ip_int = int(iface.ip)
+
+if last < first:
+    # Extremely small/invalid subnet; fallback (won't be used by Kea anyway).
+    print(str(iface.ip), str(iface.ip))
+    sys.exit(0)
+
+desired_start = int(net.network_address) + 100
+desired_end = int(net.network_address) + 200
+
+start = desired_start if first <= desired_start <= last else first
+end = desired_end if first <= desired_end <= last else min(first + 100, last)
+
+if start == ip_int and start < last:
+    start += 1
+if end == ip_int and end > first:
+    end -= 1
+if end < start:
+    end = start
+
+print(str(ipaddress.ip_address(start)), str(ipaddress.ip_address(end)))
+PY
+}
+
+read -r LAN_DHCP_START LAN_DHCP_END < <(calc_dhcp_range "$LAN_ADDR")
+read -r OPT1_DHCP_START OPT1_DHCP_END < <(calc_dhcp_range "$OPT1_ADDR")
+
 install -d /opt/auroragw
 if [[ ! -f "${REPO_DIR}/web/requirements.txt" ]]; then
   echo "ERROR: install source not found at ${REPO_DIR} (missing web/requirements.txt)" >&2
@@ -374,13 +410,13 @@ segments:
     label: LAN
     ifref: lan
     address: ${LAN_ADDR}
-    dhcp: { enabled: true, range_start: 192.168.101.100, range_end: 192.168.101.200 }
+    dhcp: { enabled: true, range_start: ${LAN_DHCP_START}, range_end: ${LAN_DHCP_END} }
 
   - id: opt1
     label: OPT1
     ifref: opt1
     address: ${OPT1_ADDR}
-    dhcp: { enabled: true, range_start: 192.168.102.100, range_end: 192.168.102.200 }
+    dhcp: { enabled: true, range_start: ${OPT1_DHCP_START}, range_end: ${OPT1_DHCP_END} }
 
 wan:
   mode: ${WAN_MODE}

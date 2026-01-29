@@ -720,8 +720,13 @@ def cmd_apply(path: str, commit: bool, require_confirm: bool, timeout: int):
         if dhcp.get("enabled", True) and dhcp.get("provider","kea") == "kea":
             Path("/etc/kea").mkdir(parents=True, exist_ok=True)
             Path("/etc/kea/kea-dhcp4.conf").write_text(render_kea_dhcp4(cfg, ifs), encoding="utf-8")
-            if sh(["kea-dhcp4", "-t", "/etc/kea/kea-dhcp4.conf"], check=False).returncode != 0:
-                raise RuntimeError("Kea config test failed (kea-dhcp4 -t /etc/kea/kea-dhcp4.conf).")
+            test = sh(["kea-dhcp4", "-t", "/etc/kea/kea-dhcp4.conf"], check=False)
+            if test.returncode != 0:
+                raise RuntimeError(
+                    "Kea config test failed (kea-dhcp4 -t /etc/kea/kea-dhcp4.conf).\n"
+                    f"stdout:\n{test.stdout}\n"
+                    f"stderr:\n{test.stderr}\n"
+                )
             sh(["systemctl","enable","--now","kea-dhcp4-server"], check=False)
             sh(["systemctl","restart","kea-dhcp4-server"], check=False)
 
@@ -731,8 +736,13 @@ def cmd_apply(path: str, commit: bool, require_confirm: bool, timeout: int):
             Path("/etc/unbound/unbound.conf.d/auroragw-forwarders.conf").write_text(
                 render_unbound_forwarders(upstream_dns_servers(cfg)), encoding="utf-8"
             )
-            if sh(["unbound-checkconf"], check=False).returncode != 0:
-                raise RuntimeError("Unbound config check failed (unbound-checkconf).")
+            utest = sh(["unbound-checkconf"], check=False)
+            if utest.returncode != 0:
+                raise RuntimeError(
+                    "Unbound config check failed (unbound-checkconf).\n"
+                    f"stdout:\n{utest.stdout}\n"
+                    f"stderr:\n{utest.stderr}\n"
+                )
             sh(["systemctl","enable","--now","unbound"], check=False)
             sh(["systemctl","restart","unbound"], check=False)
 

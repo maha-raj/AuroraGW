@@ -89,10 +89,14 @@ sudo ip link set "$WAN_IF" up
 
 sudo tee /etc/dnsmasq.d/wanlab.conf >/dev/null <<EOF
 interface=${WAN_IF}
+listen-address=10.0.2.1
 bind-interfaces
+no-resolv
+server=1.1.1.1
+server=9.9.9.9
 dhcp-range=10.0.2.10,10.0.2.200,255.255.255.0,12h
 dhcp-option=3,10.0.2.1
-dhcp-option=6,1.1.1.1,9.9.9.9
+dhcp-option=6,10.0.2.1
 EOF
 
 sudo systemctl enable --now dnsmasq

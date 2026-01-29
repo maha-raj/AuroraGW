@@ -8,6 +8,27 @@ if [[ "$ACTION" == "--reconfigure" || "$ACTION" == "reconfigure" ]]; then
 fi
 export DEBIAN_FRONTEND=noninteractive
 
+apt_install_one_of() {
+  # Usage: apt_install_one_of "human label" pkg1 pkg2 ...
+  local label="$1"; shift
+  local ok=1
+  set +e
+  for pkg in "$@"; do
+    apt-get install -y --no-install-recommends "$pkg"
+    if [[ $? -eq 0 ]]; then ok=0; break; fi
+  done
+  set -e
+  if [[ $ok -ne 0 ]]; then
+    echo "ERROR: could not install ${label}. Tried: $*" >&2
+    echo "Tip (Ubuntu): ensure 'universe' is enabled in your apt sources, then run: sudo apt-get update" >&2
+    return 1
+  fi
+}
+
+have_pppoe_plugin() {
+  compgen -G "/usr/lib/pppd/*/rp-pppoe.so" >/dev/null || compgen -G "/usr/lib/*/pppd/*/rp-pppoe.so" >/dev/null
+}
+
 if [[ $RECONFIGURE -eq 0 ]]; then
   apt-get update
 
@@ -15,11 +36,17 @@ if [[ $RECONFIGURE -eq 0 ]]; then
   apt-get install -y --no-install-recommends \
     ca-certificates curl jq \
     nftables iproute2 iputils-ping tcpdump ethtool \
-    ppp rp-pppoe \
+    ppp \
     python3 python3-venv python3-pip python3-yaml python3-jsonschema \
-    isc-kea unbound \
-    miniupnpd-nftables \
+    unbound \
     openssl rsync unzip
+
+  # Kea DHCP server package naming varies by distro/repo.
+  apt_install_one_of "Kea DHCP server" kea-dhcp4-server isc-kea kea
+
+  # PPPoE client plugin package naming varies by distro/repo.
+  # AuroraGW uses rp-pppoe.so via ppp; commonly provided by 'pppoe' or 'rp-pppoe'.
+  apt_install_one_of "PPPoE plugin" pppoe rp-pppoe || true
 
   # Optional packages (best-effort; availability varies by distro/repo).
   apt-get install -y --no-install-recommends \
@@ -29,6 +56,9 @@ if [[ $RECONFIGURE -eq 0 ]]; then
     speedtest-cli \
     docker.io docker-compose-plugin \
     || true
+
+  # Optional UPnP package naming varies; try nftables-optimized first.
+  apt_install_one_of "miniupnpd" miniupnpd-nftables miniupnpd || true
 
   # Some distros need a version-specific venv package (ex: python3.13-venv).
   if ! python3 -c "import ensurepip" >/dev/null 2>&1; then
@@ -213,6 +243,16 @@ if [[ "$WAN_MODE" == "pppoe" ]]; then
   else
     read -r -p "PPPoE username: " PPPOE_USER
     read -r -s -p "PPPoE password: " PPPOE_PASS; echo
+  fi
+
+  if ! have_pppoe_plugin; then
+    echo "== PPPoE plugin not detected; attempting install =="
+    if [[ $RECONFIGURE -eq 0 ]]; then
+      apt_install_one_of "PPPoE plugin" pppoe rp-pppoe
+    else
+      echo "ERROR: PPPoE plugin missing. Install 'pppoe' (or 'rp-pppoe') and re-run." >&2
+      exit 2
+    fi
   fi
 fi
 

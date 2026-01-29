@@ -14,20 +14,22 @@ list_ifaces() {
 
 get_upstream_dns() {
   local out=()
+  local extract_ips
+  extract_ips() {
+    grep -Eo '([0-9]{1,3}\.){3}[0-9]{1,3}|([0-9a-fA-F]{0,4}:){2,}[0-9a-fA-F:]+' || true
+  }
   if command -v resolvectl >/dev/null 2>&1; then
     if [[ -n "${UPLINK_IF:-}" ]]; then
       while read -r tok; do
-        tok="${tok//[^0-9.:]/}"
         [[ -z "$tok" ]] && continue
         out+=("$tok")
-      done < <(resolvectl dns "$UPLINK_IF" 2>/dev/null | awk '{for(i=2;i<=NF;i++) print $i}')
+      done < <(resolvectl dns "$UPLINK_IF" 2>/dev/null | extract_ips)
     fi
     if [[ ${#out[@]} -eq 0 ]]; then
       while read -r tok; do
-        tok="${tok//[^0-9.:]/}"
         [[ -z "$tok" ]] && continue
         out+=("$tok")
-      done < <(resolvectl dns 2>/dev/null | awk '{for(i=2;i<=NF;i++) print $i}')
+      done < <(resolvectl dns 2>/dev/null | extract_ips)
     fi
   fi
   if [[ ${#out[@]} -eq 0 ]] && [[ -f /etc/resolv.conf ]]; then

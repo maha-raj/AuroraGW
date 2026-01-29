@@ -113,7 +113,7 @@ if [[ $RECONFIGURE -eq 0 ]]; then
     nftables iproute2 iputils-ping tcpdump ethtool \
     ppp \
     python3 python3-venv python3-pip python3-yaml python3-jsonschema \
-    unbound \
+    unbound dns-root-data \
     openssl rsync unzip
 
   # Kea DHCP server package naming varies by distro/repo.

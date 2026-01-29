@@ -795,7 +795,15 @@ def cmd_apply(path: str, commit: bool, require_confirm: bool, timeout: int):
                 if shutil.which("unbound-anchor"):
                     sh(["unbound-anchor", "-a", str(root_key)], check=False)
                 else:
-                    warn("unbound-anchor not found; /var/lib/unbound/root.key may be missing")
+                    # Fallback to packaged root key if available.
+                    fallback = Path("/usr/share/dns-root-data/root.key")
+                    if fallback.exists():
+                        try:
+                            shutil.copy2(fallback, root_key)
+                        except Exception as e:
+                            warn(f"failed to copy root.key from {fallback}: {e}")
+                    else:
+                        warn("unbound-anchor not found; /var/lib/unbound/root.key may be missing")
             if root_key.exists():
                 try:
                     os.chmod(root_key, 0o644)

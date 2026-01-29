@@ -10,6 +10,26 @@ if [[ "$ACTION" == "--reconfigure" || "$ACTION" == "reconfigure" ]]; then
 fi
 export DEBIAN_FRONTEND=noninteractive
 
+LOG_DIR="/var/log/auroragw"
+TS="$(date +%Y%m%d-%H%M%S)"
+LOG_FILE="${LOG_DIR}/install-${TS}.log"
+mkdir -p "$LOG_DIR"
+umask 077
+touch "$LOG_FILE"
+chmod 600 "$LOG_FILE" || true
+exec > >(tee -a "$LOG_FILE") 2>&1
+echo "== AuroraGW installer started: $(date -Is) =="
+echo "Log: $LOG_FILE"
+echo "Repo: $REPO_DIR"
+echo "Kernel: $(uname -a)"
+if command -v lsb_release >/dev/null 2>&1; then lsb_release -a || true; fi
+if [[ -f /etc/os-release ]]; then cat /etc/os-release || true; fi
+echo "Interfaces:"
+ip -br link || true
+echo
+
+trap 'rc=$?; echo "ERROR: installer failed (rc=$rc) near line $LINENO. See: '"$LOG_FILE"'"; exit $rc' ERR
+
 apt_install_one_of() {
   # Usage: apt_install_one_of "human label" pkg1 pkg2 ...
   local label="$1"; shift

@@ -29,6 +29,10 @@ After install:
 - Web UI: `https://<LAN-IP>:8443/` (self-signed)
 - Optional Cockpit (if enabled): `https://<LAN-IP>:9090/`
 
+Installer logging:
+- The installer writes a full log to `/var/log/auroragw/install-<timestamp>.log`.
+- If install fails, re-run and/or review the log file for the first error.
+
 If install fails during virtualenv creation with an `ensurepip is not available` message, install the venv package and re-run:
 ```bash
 sudo apt-get update

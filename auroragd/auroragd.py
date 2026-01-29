@@ -784,6 +784,23 @@ def cmd_apply(path: str, commit: bool, require_confirm: bool, timeout: int):
                     os.chmod(p, 0o644)
                 except Exception:
                     pass
+            # Ensure DNSSEC root key exists (required by default unbound.conf).
+            root_key = Path("/var/lib/unbound/root.key")
+            if not root_key.exists():
+                try:
+                    root_key.parent.mkdir(parents=True, exist_ok=True)
+                    os.chmod(root_key.parent, 0o755)
+                except Exception:
+                    pass
+                if shutil.which("unbound-anchor"):
+                    sh(["unbound-anchor", "-a", str(root_key)], check=False)
+                else:
+                    warn("unbound-anchor not found; /var/lib/unbound/root.key may be missing")
+            if root_key.exists():
+                try:
+                    os.chmod(root_key, 0o644)
+                except Exception:
+                    pass
             utest = sh(["unbound-checkconf"], check=False)
             if utest.returncode != 0:
                 raise RuntimeError(

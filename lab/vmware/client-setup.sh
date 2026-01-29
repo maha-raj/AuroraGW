@@ -81,6 +81,12 @@ else
   else
     sudo ip addr add "$IP_CIDR" dev "$IFACE"
     sudo ip route replace default via "$GW"
+    if command -v resolvectl >/dev/null 2>&1; then
+      sudo resolvectl dns "$IFACE" "$DNS" || true
+      sudo resolvectl domain "$IFACE" "~." || true
+    else
+      echo "nameserver $DNS" | sudo tee /etc/resolv.conf >/dev/null
+    fi
   fi
 fi
 

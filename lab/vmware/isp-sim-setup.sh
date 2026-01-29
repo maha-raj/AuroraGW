@@ -12,6 +12,40 @@ list_ifaces() {
   ip -o link show | awk -F': ' '{print $2}' | grep -v '^lo$' || true
 }
 
+get_upstream_dns() {
+  local out=()
+  if command -v resolvectl >/dev/null 2>&1; then
+    if [[ -n "${UPLINK_IF:-}" ]]; then
+      while read -r tok; do
+        tok="${tok//[^0-9.:]/}"
+        [[ -z "$tok" ]] && continue
+        out+=("$tok")
+      done < <(resolvectl dns "$UPLINK_IF" 2>/dev/null | awk '{for(i=2;i<=NF;i++) print $i}')
+    fi
+    if [[ ${#out[@]} -eq 0 ]]; then
+      while read -r tok; do
+        tok="${tok//[^0-9.:]/}"
+        [[ -z "$tok" ]] && continue
+        out+=("$tok")
+      done < <(resolvectl dns 2>/dev/null | awk '{for(i=2;i<=NF;i++) print $i}')
+    fi
+  fi
+  if [[ ${#out[@]} -eq 0 ]] && [[ -f /etc/resolv.conf ]]; then
+    while read -r line; do
+      [[ "$line" =~ ^nameserver[[:space:]]+ ]] || continue
+      out+=("$(echo "$line" | awk '{print $2}')")
+    done < /etc/resolv.conf
+  fi
+  # Filter duplicates and local stubs
+  local uniq=()
+  for s in "${out[@]}"; do
+    [[ -z "$s" ]] && continue
+    [[ "$s" == "127.0.0.53" || "$s" == "127.0.0.1" || "$s" == "::1" ]] && continue
+    if [[ ! " ${uniq[*]} " =~ " ${s} " ]]; then uniq+=("$s"); fi
+  done
+  echo "${uniq[@]}"
+}
+
 default_route_iface() {
   ip -o route show default 2>/dev/null | awk '{for(i=1;i<=NF;i++) if ($i=="dev"){print $(i+1); exit}}' || true
 }
@@ -87,13 +121,17 @@ sudo chmod 600 /etc/auroragw-isp-sim.env || true
 sudo ip addr add 10.0.2.1/24 dev "$WAN_IF" || true
 sudo ip link set "$WAN_IF" up
 
+UPSTREAM_DNS=($(get_upstream_dns))
+if [[ ${#UPSTREAM_DNS[@]} -eq 0 ]]; then
+  UPSTREAM_DNS=("1.1.1.1" "9.9.9.9")
+fi
+
 sudo tee /etc/dnsmasq.d/wanlab.conf >/dev/null <<EOF
 interface=${WAN_IF}
 listen-address=10.0.2.1
 bind-interfaces
 no-resolv
-server=1.1.1.1
-server=9.9.9.9
+$(for s in "${UPSTREAM_DNS[@]}"; do echo "server=${s}"; done)
 dhcp-range=10.0.2.10,10.0.2.200,255.255.255.0,12h
 dhcp-option=3,10.0.2.1
 dhcp-option=6,10.0.2.1

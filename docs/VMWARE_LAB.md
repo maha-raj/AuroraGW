@@ -99,17 +99,18 @@ After install, from `lan-client`:
 ## Client VM setup scripts (inside the client VMs)
 
 These scripts configure a client NIC with a static IP and install common tools.
+Note: the original one-shot config does not persist across reboot unless you pass `--persist`.
 
 ### LAN client
 ```bash
 cd AuroraGW/lab/vmware
-sudo ./client-setup.sh --role lan
+sudo ./client-setup.sh --role lan --mode dhcp --persist
 ```
 
 ### OPT1 client
 ```bash
 cd AuroraGW/lab/vmware
-sudo ./client-setup.sh --role opt1
+sudo ./client-setup.sh --role opt1 --mode dhcp --persist
 ```
 
 ## Validation scripts

@@ -17,6 +17,8 @@ cd AuroraGW
 sudo ./install/auroragw-install.sh
 ```
 
+Note: you can also run it from the `install/` directory; the installer copies files based on its own location.
+
 Installer prompts:
 - Select NICs from the detected interface list for `wan/lan/opt1` (the config stores MACs for portability)
   - Tip: in the terminal menu, use arrow keys and press **Enter** to select.

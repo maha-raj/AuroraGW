@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 [[ $EUID -eq 0 ]] || { echo "Run as root."; exit 1; }
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 ACTION="${1:-}"
 RECONFIGURE=0
 if [[ "$ACTION" == "--reconfigure" || "$ACTION" == "reconfigure" ]]; then
@@ -257,11 +259,22 @@ if [[ "$WAN_MODE" == "pppoe" ]]; then
 fi
 
 install -d /opt/auroragw
-rsync -a --delete ./ /opt/auroragw/ --exclude ".git" --exclude "*.zip" >/dev/null 2>&1 || cp -a ./ /opt/auroragw/
+if [[ ! -f "${REPO_DIR}/web/requirements.txt" ]]; then
+  echo "ERROR: install source not found at ${REPO_DIR} (missing web/requirements.txt)" >&2
+  echo "Tip: run from a git clone of AuroraGW (or re-run via /opt/auroragw/install/auroragw-install.sh)." >&2
+  exit 2
+fi
+rsync -a --delete "${REPO_DIR}/" /opt/auroragw/ --exclude ".git" --exclude "*.zip" >/dev/null 2>&1 || cp -a "${REPO_DIR}/." /opt/auroragw/
 
 python3 -m venv /opt/auroragw/venv
 /opt/auroragw/venv/bin/pip install --upgrade pip >/dev/null
-/opt/auroragw/venv/bin/pip install -r /opt/auroragw/web/requirements.txt >/dev/null
+REQ_FILE="/opt/auroragw/web/requirements.txt"
+if [[ ! -f "$REQ_FILE" ]]; then
+  echo "ERROR: missing $REQ_FILE after install copy." >&2
+  echo "Did you run the installer from the correct repo path? (It copies from the script location now.)" >&2
+  exit 2
+fi
+/opt/auroragw/venv/bin/pip install -r "$REQ_FILE" >/dev/null
 
 install -d /etc/auroragw/tls
 if [[ ! -f /etc/auroragw/tls/cert.pem ]]; then

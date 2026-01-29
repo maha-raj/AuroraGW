@@ -68,6 +68,15 @@ Result:
 - DHCP on WAN-LAB gives AuroraGW WAN an IP like `10.0.2.x`
 - NATs traffic out via the VM’s NAT uplink
 
+Reboot note:
+- `isp-sim-setup.sh` installs a `auroragw-isp-sim.service` so DHCP+NAT comes back after reboot.
+- Check with:
+```bash
+systemctl status auroragw-isp-sim.service --no-pager
+systemctl status dnsmasq --no-pager
+ip -br addr
+```
+
 ## Step-by-step: AuroraGW install (bootstrap mode)
 
 On `auroragw` VM:

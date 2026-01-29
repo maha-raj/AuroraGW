@@ -77,6 +77,13 @@ sudo apt-get install -y dnsmasq nftables
 
 echo "== Configuring ISP simulator: WAN_IF=${WAN_IF} (WAN-LAB) UPLINK_IF=${UPLINK_IF} (uplink) =="
 
+# Persist interface choices for reboot.
+sudo tee /etc/auroragw-isp-sim.env >/dev/null <<EOF
+WAN_IF=${WAN_IF}
+UPLINK_IF=${UPLINK_IF}
+EOF
+sudo chmod 600 /etc/auroragw-isp-sim.env || true
+
 sudo ip addr add 10.0.2.1/24 dev "$WAN_IF" || true
 sudo ip link set "$WAN_IF" up
 
@@ -98,5 +105,83 @@ sudo nft flush ruleset || true
 sudo nft add table ip nat
 sudo nft 'add chain ip nat postrouting { type nat hook postrouting priority 100 ; }'
 sudo nft add rule ip nat postrouting oifname "$UPLINK_IF" masquerade
+
+sudo tee /usr/local/sbin/auroragw-isp-sim-apply.sh >/dev/null <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+ENV_FILE="/etc/auroragw-isp-sim.env"
+WAN_IF=""
+UPLINK_IF=""
+
+have_iface() { ip link show dev "$1" >/dev/null 2>&1; }
+list_ifaces() { ip -o link show | awk -F': ' '{print $2}' | grep -v '^lo$' || true; }
+default_route_iface() { ip -o route show default 2>/dev/null | awk '{for(i=1;i<=NF;i++) if ($i=="dev"){print $(i+1); exit}}' || true; }
+
+if [[ -f "$ENV_FILE" ]]; then
+  # shellcheck disable=SC1090
+  source "$ENV_FILE" || true
+fi
+
+WAN_IF="${WAN_IF:-}"
+UPLINK_IF="${UPLINK_IF:-}"
+
+if [[ -z "$UPLINK_IF" ]]; then
+  UPLINK_IF="$(default_route_iface)"
+fi
+
+if [[ -z "$WAN_IF" ]]; then
+  while read -r ifn; do
+    [[ -z "$ifn" ]] && continue
+    if [[ "$ifn" != "$UPLINK_IF" ]]; then
+      WAN_IF="$ifn"
+      break
+    fi
+  done < <(list_ifaces)
+fi
+
+if ! have_iface "$WAN_IF" || ! have_iface "$UPLINK_IF" || [[ "$WAN_IF" == "$UPLINK_IF" ]]; then
+  echo "ERROR: auroragw-isp-sim-apply could not determine interfaces." >&2
+  echo "Detected interfaces:" >&2
+  list_ifaces >&2
+  echo "Have env file? $ENV_FILE" >&2
+  exit 2
+fi
+
+echo "== AuroraGW ISP-sim apply: WAN_IF=${WAN_IF} UPLINK_IF=${UPLINK_IF} =="
+
+ip link set "$WAN_IF" up || true
+ip addr add 10.0.2.1/24 dev "$WAN_IF" 2>/dev/null || true
+
+echo "net.ipv4.ip_forward=1" > /etc/sysctl.d/99-wanlab.conf
+sysctl --system >/dev/null || true
+
+nft flush ruleset || true
+nft add table ip nat
+nft 'add chain ip nat postrouting { type nat hook postrouting priority 100 ; }'
+nft add rule ip nat postrouting oifname "$UPLINK_IF" masquerade
+
+systemctl enable --now dnsmasq >/dev/null 2>&1 || true
+systemctl restart dnsmasq >/dev/null 2>&1 || true
+EOF
+sudo chmod 755 /usr/local/sbin/auroragw-isp-sim-apply.sh
+
+sudo tee /etc/systemd/system/auroragw-isp-sim.service >/dev/null <<'EOF'
+[Unit]
+Description=AuroraGW VMware ISP simulator (WAN-LAB DHCP + NAT)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/auroragw-isp-sim-apply.sh
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now auroragw-isp-sim.service
 
 echo "ISP simulator ready."

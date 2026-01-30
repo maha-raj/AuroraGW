@@ -221,6 +221,13 @@ table inet filter {{
     iifname "{lan_if}" oifname "{opt_if}" accept
     {'iifname "' + opt_if + '" oifname "' + lan_if + '" udp dport {5353,1900} accept' if discovery_enabled else '# (discovery relay disabled; OPT1 -> LAN remains blocked)'}
   }}
+
+  # Output from the router itself (management plane, DNS forwarding, updates, etc).
+  # Default policy is accept to avoid breaking connectivity; adjust later if you want strict egress filtering.
+  chain output {{
+    type filter hook output priority 0;
+    policy accept;
+  }}
 }}
 
 table ip nat {{

@@ -96,6 +96,15 @@ During install:
 After install, from `lan-client`:
 - Web UI: `https://192.168.101.1:8443/`
 
+## DNSSEC note (strict vs permissive)
+
+AuroraGW uses Unbound as the default DNS resolver for LAN/OPT1 clients.
+In some lab/NAT setups (or with some upstream resolvers), DNSSEC records can be stripped which can cause Unbound to return `SERVFAIL` for otherwise-valid domains when running in strict DNSSEC mode.
+
+In the Web UI (`DNS` page):
+- **DNSSEC mode = permissive**: best for lab reliability (recommended default)
+- **DNSSEC mode = strict**: stronger validation, but may break if upstream DNS is not DNSSEC-capable
+
 ## Client VM setup scripts (inside the client VMs)
 
 These scripts configure a client NIC with a static IP and install common tools.
@@ -125,6 +134,12 @@ Run from the **OPT1 client**:
 ```bash
 cd AuroraGW/lab/vmware
 sudo ./opt1-validate.sh --router 192.168.102.1
+```
+
+Validation scripts expect common tools (`dig`, `curl`). If you’re using a minimal Ubuntu install on the client VM:
+```bash
+sudo apt-get update
+sudo apt-get install -y dnsutils curl
 ```
 
 ## PPPoE testing (optional)

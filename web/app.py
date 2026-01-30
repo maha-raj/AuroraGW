@@ -738,6 +738,9 @@ def dns_get(request: Request):
     up_mode = (upstream.get("mode") or "auto").strip().lower()
     up_servers = upstream.get("servers") or []
     up_servers_text = ", ".join([str(x) for x in up_servers])
+    dnssec_mode = (dns.get("dnssec_mode") or "permissive").strip().lower()
+    if dnssec_mode not in ("permissive", "strict"):
+        dnssec_mode = "permissive"
 
     seg_rows = []
     for seg in (cfg.get("segments") or []):
@@ -755,13 +758,18 @@ def dns_get(request: Request):
             }
         )
 
-    return render(request, "dns.html", {"up_mode": up_mode, "up_servers": up_servers_text, "segments": seg_rows})
+    return render(
+        request,
+        "dns.html",
+        {"up_mode": up_mode, "up_servers": up_servers_text, "dnssec_mode": dnssec_mode, "segments": seg_rows},
+    )
 
 @app.post("/dns")
 def dns_post(
     request: Request,
     upstream_mode: str = Form("auto"),
     upstream_servers: str = Form(""),
+    dnssec_mode: str = Form("permissive"),
     seg_id: List[str] = Form([]),
     seg_dns_mode: List[str] = Form([]),
     seg_dns_servers: List[str] = Form([]),
@@ -777,6 +785,11 @@ def dns_post(
         upstream_mode = "auto"
     cfg["services"]["dns"]["upstream"]["mode"] = upstream_mode
     cfg["services"]["dns"]["upstream"]["servers"] = parse_dns_list(upstream_servers) if upstream_mode == "manual" else []
+
+    dnssec_mode = (dnssec_mode or "permissive").strip().lower()
+    if dnssec_mode not in ("permissive", "strict"):
+        dnssec_mode = "permissive"
+    cfg["services"]["dns"]["dnssec_mode"] = dnssec_mode
 
     by_id = {str(s.get("id")): s for s in (cfg.get("segments") or [])}
     for i, sid in enumerate(seg_id):

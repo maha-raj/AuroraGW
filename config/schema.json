@@ -175,6 +175,13 @@
             "enabled": {
               "type": "boolean"
             },
+            "dnssec_mode": {
+              "type": "string",
+              "enum": [
+                "permissive",
+                "strict"
+              ]
+            },
             "upstream": {
               "type": "object",
               "properties": {

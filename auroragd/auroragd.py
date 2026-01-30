@@ -360,10 +360,19 @@ def render_unbound_base(cfg, ifs):
             continue
     allow_nets.append("127.0.0.0/8")
     access = "\n".join([f"  access-control: {n} allow" for n in list(dict.fromkeys(allow_nets))])
+    dns = (cfg.get("services", {}).get("dns", {}) or {})
+    dnssec_mode = (dns.get("dnssec_mode") or "permissive").strip().lower()
+    if dnssec_mode not in ("permissive", "strict"):
+        dnssec_mode = "permissive"
     # Note: In many home/ISP environments (and some lab/NAT setups), upstream resolvers may not
     # fully support DNSSEC (or may strip DNSSEC records). Unbound's harden-dnssec-stripped can
-    # then cause SERVFAIL for otherwise valid domains. We run in permissive mode by default to
-    # preserve reliability while still validating when possible.
+    # then cause SERVFAIL for otherwise valid domains. We default to permissive to preserve
+    # reliability while still validating when possible.
+    dnssec = (
+        "  harden-dnssec-stripped: yes\n  val-permissive-mode: no"
+        if dnssec_mode == "strict"
+        else "  harden-dnssec-stripped: no\n  val-permissive-mode: yes"
+    )
     return f'''server:
   verbosity: 1
  {listen}
@@ -373,8 +382,7 @@ def render_unbound_base(cfg, ifs):
   hide-identity: yes
   hide-version: yes
   harden-glue: yes
-  harden-dnssec-stripped: no
-  val-permissive-mode: yes
+{dnssec}
   qname-minimisation: yes
   prefetch: yes
 '''

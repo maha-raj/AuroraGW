@@ -25,6 +25,18 @@
           <input type="text" name="upstream_servers" value="{{ up_servers }}" placeholder="1.1.1.1, 9.9.9.9" />
         </div>
       </div>
+      <div class="row">
+        <div class="col">
+          <label>DNSSEC mode</label>
+          <select name="dnssec_mode">
+            <option value="permissive" {% if dnssec_mode == "permissive" %}selected{% endif %}>permissive (recommended for lab/NAT)</option>
+            <option value="strict" {% if dnssec_mode == "strict" %}selected{% endif %}>strict</option>
+          </select>
+          <p class="muted" style="margin-top: 6px;">
+            Strict may cause <code>SERVFAIL</code> if the upstream resolver strips DNSSEC records.
+          </p>
+        </div>
+      </div>
     </div>
 
     <div class="card">

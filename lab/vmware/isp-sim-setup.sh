@@ -133,6 +133,9 @@ interface=${WAN_IF}
 listen-address=10.0.2.1
 bind-interfaces
 no-resolv
+# Some lab networks (including certain NAT setups) block outbound UDP/53 but allow TCP/53.
+# Force upstream queries over TCP so downstream clients can resolve reliably.
+force-tcp
 $(for s in "${UPSTREAM_DNS[@]}"; do echo "server=${s}"; done)
 dhcp-range=10.0.2.10,10.0.2.200,255.255.255.0,12h
 dhcp-option=3,10.0.2.1

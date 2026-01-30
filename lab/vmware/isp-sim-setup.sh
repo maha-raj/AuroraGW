@@ -133,6 +133,8 @@ interface=${WAN_IF}
 listen-address=10.0.2.1
 bind-interfaces
 no-resolv
+# Forward DNS via systemd-resolved (handles upstream quirks; avoids relying on public resolvers).
+server=127.0.0.53
 $(for s in "${UPSTREAM_DNS[@]}"; do echo "server=${s}"; done)
 dhcp-range=10.0.2.10,10.0.2.200,255.255.255.0,12h
 dhcp-option=3,10.0.2.1

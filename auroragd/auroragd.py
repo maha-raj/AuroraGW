@@ -732,6 +732,15 @@ def cmd_apply(path: str, commit: bool, require_confirm: bool, timeout: int):
         Path("/etc/sysctl.d/99-auroragw.conf").write_text("net.ipv4.ip_forward=1\nnet.ipv6.conf.all.forwarding=1\n", encoding="utf-8")
 
         Path("/etc/nftables.conf").write_text(render_nft(cfg, ifs), encoding="utf-8")
+        # Load nftables immediately so the running ruleset always matches the config file.
+        # Relying on systemd alone can leave the kernel with stale rules after upgrades/reinstalls.
+        nft_load = sh(["nft", "-f", "/etc/nftables.conf"], check=False)
+        if nft_load.returncode != 0:
+            raise RuntimeError(
+                "Failed to load nftables rules (/etc/nftables.conf).\n"
+                f"stdout:\n{nft_load.stdout}\n"
+                f"stderr:\n{nft_load.stderr}\n"
+            )
 
         peer, chap = render_pppoe(cfg, ifs)
         if peer and chap:

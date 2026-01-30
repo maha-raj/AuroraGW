@@ -360,19 +360,23 @@ def render_unbound_base(cfg, ifs):
             continue
     allow_nets.append("127.0.0.0/8")
     access = "\n".join([f"  access-control: {n} allow" for n in list(dict.fromkeys(allow_nets))])
+    # Note: In many home/ISP environments (and some lab/NAT setups), upstream resolvers may not
+    # fully support DNSSEC (or may strip DNSSEC records). Unbound's harden-dnssec-stripped can
+    # then cause SERVFAIL for otherwise valid domains. We run in permissive mode by default to
+    # preserve reliability while still validating when possible.
     return f'''server:
   verbosity: 1
-{listen}
+ {listen}
 {access}
   port: 53
   do-ip6: no
   hide-identity: yes
   hide-version: yes
   harden-glue: yes
-  harden-dnssec-stripped: yes
+  harden-dnssec-stripped: no
+  val-permissive-mode: yes
   qname-minimisation: yes
   prefetch: yes
-include: "/etc/unbound/unbound.conf.d/auroragw-forwarders.conf"
 '''
 
 def render_unbound_forwarders(servers):
